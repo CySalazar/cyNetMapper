@@ -5,7 +5,8 @@ use clap::{Parser, ValueEnum};
 use colored::*;
 use cynetmapper_core::{
     config::Config,
-    types::{Target, PortRange, IpAddr},
+    scanner::{Scanner, ScanOptions},
+    types::{Target, PortRange, IpAddr, Protocol},
 };
 use std::{
     path::PathBuf,
@@ -140,7 +141,7 @@ fn parse_port_range(ports: &str) -> Result<PortRange> {
 
 /// Execute the scan
 async fn execute_scan(cli: &Cli, config: &Arc<Config>) -> Result<()> {
-    println!("{}", "Starting cyNetMapper scan...".green().bold());
+    info!("Starting cyNetMapper scan");
     
     // Parse targets
     let mut targets = Vec::new();
@@ -166,51 +167,55 @@ async fn execute_scan(cli: &Cli, config: &Arc<Config>) -> Result<()> {
     println!("Targets: {}", targets.len());
     println!("Ports: {}", port_range.to_string().yellow());
     
-    // Simple TCP connect scan
-    for target in targets {
-        println!("\nScanning {}...", target.to_string().cyan());
+    // Create scan options
+    let scan_options = ScanOptions {
+        max_concurrency: cli.max_concurrent,
+        timeout: std::time::Duration::from_secs(cli.timeout),
+        protocols: vec![Protocol::Tcp], // Only TCP for CLI
+        ..Default::default()
+    };
+    
+    // Create scanner and execute scan
+    let mut scanner = Scanner::new(config.as_ref().clone())
+        .context("Failed to create scanner")?;
+    
+    debug!("Executing scan with core scanner");
+    let scan_results = scanner.scan(targets, port_range, scan_options).await
+        .context("Failed to execute scan")?;
+    
+    // Display results
+    println!("\n{}", "Scan Results:".green().bold());
+    for host_result in &scan_results.hosts {
+        println!("\nHost: {}", host_result.address.to_string().cyan());
         
-        let mut open_ports = Vec::new();
-        
-        for port in port_range.expand() {
-            let target_ip = match &target {
-                 Target::Ip(ip) => *ip,
-                 Target::Hostname(hostname) => {
-                     // For simplicity, skip hostname resolution for now
-                     println!("  Skipping hostname: {}", hostname);
-                     continue;
-                 },
-                 _ => {
-                     println!("  Skipping complex target: {}", target);
-                     continue;
-                 }
-             };
-             let addr = format!("{}:{}", target_ip, port);
-            
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(cli.timeout),
-                tokio::net::TcpStream::connect(&addr)
-            ).await {
-                Ok(Ok(_)) => {
-                    open_ports.push(port);
-                    println!("  {}/tcp {}", port, "open".green());
-                },
-                _ => {
-                    if cli.verbose > 0 {
-                        println!("  {}/tcp {}", port, "closed".red());
-                    }
-                }
-            }
+        if let Some(hostname) = &host_result.hostname {
+            println!("  Hostname: {}", hostname.yellow());
         }
+        
+        // Get open ports for this host
+        let open_ports = scan_results.open_ports_for_host(&host_result.address);
         
         if open_ports.is_empty() {
             println!("  {}", "No open ports found".yellow());
         } else {
-            println!("  Found {} open ports", open_ports.len().to_string().green());
+            println!("  Open ports:");
+            for port_result in open_ports {
+                let service_info = if let Some(service) = &port_result.service {
+                    format!(" ({})", service)
+                } else {
+                    String::new()
+                };
+                println!("    {}/{}{}", 
+                    port_result.address.port(), 
+                    port_result.protocol.to_string().to_lowercase(),
+                    service_info.green()
+                );
+            }
         }
     }
     
     println!("\n{}", "Scan completed".green().bold());
+    info!("Scan completed successfully");
     
     Ok(())
 }

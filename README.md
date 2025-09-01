@@ -29,12 +29,13 @@ cyNetMapper is a high-performance network scanner that combines the speed and se
 
 - **🔥 High Performance**: Asynchronous scanning engine written in Rust
 - **🖥️ Modern GUI**: Cross-platform interface with Tauri and React
-- **⚡ Real-time Scanning**: Live monitoring of progress and results
+- **⚡ Real-time Scanning**: Live monitoring of progress and results with structured events
 - **🎯 Advanced Detection**: OS fingerprinting and service detection
 - **📊 Visualizations**: Interactive charts and network maps
 - **🔧 Powerful CLI**: Command-line interface for automation
 - **📁 Multiple Exports**: Support for JSON, XML (Nmap), CSV
 - **🐳 Docker Ready**: Containerized testing environment included
+- **🔄 Event-Driven**: Real-time event system for GUI updates and monitoring
 
 ## 🛠️ Features
 
@@ -52,6 +53,8 @@ cyNetMapper is a high-performance network scanner that combines the speed and se
 - Dynamic charts and network maps
 - Scan history management
 - Advanced export and reporting
+- Event-driven updates with structured logging
+- Real-time host and port discovery notifications
 
 ### CLI
 - Intuitive and flexible syntax
@@ -187,6 +190,49 @@ cyNetMapper/
 - Secure frontend-backend communication
 - Native bundles for each OS
 
+## 🔄 Event System
+
+cyNetMapper features a comprehensive real-time event system that provides live updates during scanning operations:
+
+### Event Types
+
+- **ScanStarted**: Emitted when a scan begins
+- **HostDiscovered**: Fired when a new host is discovered
+- **PortDiscovered**: Triggered when an open port is found
+- **ScanProgress**: Regular progress updates with metrics
+- **ScanCompleted**: Final scan completion notification
+- **Error**: Error events with detailed information
+- **StatusUpdate**: General status changes
+
+### Structured Logging
+
+All events include structured data with:
+- Scan ID for correlation
+- Timestamps for timing analysis
+- Host and port information
+- Service detection results
+- Performance metrics
+
+### Event Flow
+
+```
+Scan Start → Host Discovery → Port Scanning → Service Detection → Completion
+     ↓              ↓              ↓              ↓              ↓
+ScanStarted → HostDiscovered → PortDiscovered → StatusUpdate → ScanCompleted
+```
+
+### Usage in GUI
+
+The GUI subscribes to these events to provide real-time updates:
+
+```typescript
+// Event subscription in React components
+const { scanResults, isScanning } = useScanStore();
+
+// Real-time updates are automatically handled
+// through the Zustand store and Tauri event system
+```
+
 ## 📚 Documentation
 
 - **[User Guide](docs/user-guide.md)** - Complete tutorial and examples
@@ -194,12 +240,17 @@ cyNetMapper/
 - **[Architecture](ARCHITECTURE.md)** - Design and architectural principles
 - **[Comprehensive Analysis](COMPREHENSIVE_PROJECT_ANALYSIS.md)** - Detailed project analysis
 - **[Examples](examples/)** - Sample scripts and configurations
+- **[Event System](docs/events.md)** - Real-time event documentation
+- **[Integration Tests](tests/)** - GUI/CLI parity verification
 
 ## 🧪 Testing
 
 ```bash
 # Run all tests
 cargo test --workspace
+
+# Run integration tests for GUI/CLI parity
+cargo test --package cynetmapper-integration-tests
 
 # Test with coverage
 cargo tarpaulin --out Html
@@ -210,6 +261,22 @@ cargo bench
 # Test Docker environment
 cd docker
 ./test-lab.sh
+```
+
+### Integration Tests
+
+The project includes comprehensive integration tests that verify:
+- GUI and CLI scan result consistency
+- Event system functionality
+- Concurrent scan handling
+- Error handling and recovery
+- Port range validation
+
+```bash
+# Run specific integration test categories
+cargo test test_core_scanner_basic_functionality
+cargo test test_scan_result_consistency
+cargo test test_concurrent_scans
 ```
 
 ## 🤝 Contributing

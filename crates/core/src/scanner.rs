@@ -192,8 +192,11 @@ impl Scanner {
         ports: PortRange,
         options: ScanOptions,
     ) -> Result<ScanResults> {
-        info!("Starting scan with {} targets", targets.len());
-        
+        let scan_id = {
+            let state = self.state.read().await;
+            state.scan_id
+        };
+
         // Initialize scan state
         {
             let mut state = self.state.write().await;
@@ -215,11 +218,29 @@ impl Scanner {
             results.metadata.ports = ports.to_string();
         }
 
+        info!(
+            scan_id = %scan_id,
+            target_count = targets.len(),
+            port_range = %ports,
+            protocols = ?options.protocols,
+            max_concurrency = options.max_concurrency,
+            timeout_ms = options.timeout.as_millis(),
+            "Starting network scan"
+        );
+
         // Execute scan phases
         self.execute_scan_phases(targets, ports, options).await?;
 
         // Return final results
         let results = self.results.read().await.clone();
+        info!(
+            scan_id = %scan_id,
+            hosts_discovered = results.hosts.len(),
+            ports_found = results.ports.len(),
+            services_detected = results.services.len(),
+            "Scan completed successfully"
+        );
+        
         Ok(results)
     }
 
@@ -292,7 +313,11 @@ impl Scanner {
                             }
                         },
                         Err(e) => {
-                            warn!("Failed to resolve hostname {}: {}", hostname, e);
+                            warn!(
+                                hostname = %hostname,
+                                error = %e,
+                                "Failed to resolve hostname"
+                            );
                             self.add_error(ScanError::new(
                                 ErrorSeverity::Warning,
                                 format!("Failed to resolve hostname: {}", e)
@@ -308,7 +333,10 @@ impl Scanner {
             }
         }
         
-        info!("Resolved {} IP addresses from targets", resolved.len());
+        info!(
+            resolved_count = resolved.len(),
+            "Target resolution completed"
+        );
         Ok(resolved)
     }
 
@@ -318,6 +346,7 @@ impl Scanner {
         targets: Vec<IpAddr>,
         options: &ScanOptions,
     ) -> Result<Vec<HostResult>> {
+        let target_count = targets.len();
         let mut live_hosts = Vec::new();
         let (tx, mut rx) = mpsc::channel(1000);
         
@@ -385,7 +414,12 @@ impl Scanner {
             let _ = task.await;
         }
         
-        info!("Discovered {} live hosts", live_hosts.len());
+        info!(
+            live_hosts = live_hosts.len(),
+            total_targets = target_count,
+            discovery_rate = format!("{:.1}%", (live_hosts.len() as f64 / target_count as f64) * 100.0),
+            "Host discovery completed"
+        );
         Ok(live_hosts)
     }
 
@@ -399,8 +433,14 @@ impl Scanner {
         let port_list = ports.expand();
         let total_scans = hosts.len() * port_list.len() * options.protocols.len();
         
-        info!("Scanning {} ports on {} hosts ({} total scans)", 
-              port_list.len(), hosts.len(), total_scans);
+        info!(
+            port_count = port_list.len(),
+            host_count = hosts.len(),
+            total_scans = total_scans,
+            protocols = ?options.protocols,
+            max_concurrency = options.max_concurrency,
+            "Starting port scanning phase"
+        );
         
         let (tx, mut rx) = mpsc::channel(1000);
         let semaphore = Arc::new(tokio::sync::Semaphore::new(options.max_concurrency));
@@ -488,7 +528,10 @@ impl Scanner {
             results.ports_by_state(PortState::Open).into_iter().cloned().collect::<Vec<_>>()
         };
         
-        info!("Detecting services on {} open ports", open_ports.len());
+        info!(
+            open_ports = open_ports.len(),
+            "Starting service detection phase"
+        );
         
         for port in open_ports {
             // Basic service detection based on port number
@@ -519,7 +562,10 @@ impl Scanner {
     /// Perform OS fingerprinting
     async fn fingerprint_os(&self, _hosts: &[HostResult], _options: &ScanOptions) -> Result<()> {
         // OS fingerprinting not implemented in MVP
-        info!("OS fingerprinting not implemented in MVP");
+        info!(
+            host_count = _hosts.len(),
+            "OS fingerprinting phase skipped (not implemented in MVP)"
+        );
         Ok(())
     }
 
@@ -528,15 +574,32 @@ impl Scanner {
         let mut results = self.results.write().await;
         results.complete();
         
-        info!("Scan completed: {}", results.summary());
+        info!(
+            hosts_scanned = results.hosts.len(),
+            ports_scanned = results.ports.len(),
+            services_detected = results.services.len(),
+            errors = results.errors.len(),
+            "Scan finalization completed"
+        );
         Ok(())
     }
 
     /// Set current scan phase
     async fn set_phase(&self, phase: ScanPhase) {
+        let scan_id = {
+            let state = self.state.read().await;
+            state.scan_id
+        };
+        
         let mut state = self.state.write().await;
         state.phase = phase;
-        debug!("Scan phase changed to {:?}", phase);
+        
+        info!(
+            scan_id = %scan_id,
+            phase = ?phase,
+            elapsed_ms = state.start_time.elapsed().as_millis(),
+            "Scan phase changed"
+        );
     }
 
     /// Update scan progress
@@ -656,21 +719,45 @@ impl Scanner {
         let mut state = self.state.write().await;
         state.cancelled = true;
         state.phase = ScanPhase::Cancelled;
-        info!("Scan cancelled");
+        let scan_id = {
+            let state = self.state.read().await;
+            state.scan_id
+        };
+        
+        info!(
+            scan_id = %scan_id,
+            "Scan cancelled by user request"
+        );
     }
 
     /// Pause the current scan
     pub async fn pause(&self) {
         let mut state = self.state.write().await;
         state.paused = true;
-        info!("Scan paused");
+        let scan_id = {
+            let state = self.state.read().await;
+            state.scan_id
+        };
+        
+        info!(
+            scan_id = %scan_id,
+            "Scan paused by user request"
+        );
     }
 
     /// Resume the current scan
     pub async fn resume(&self) {
         let mut state = self.state.write().await;
         state.paused = false;
-        info!("Scan resumed");
+        let scan_id = {
+            let state = self.state.read().await;
+            state.scan_id
+        };
+        
+        info!(
+            scan_id = %scan_id,
+            "Scan resumed by user request"
+        );
     }
 }
 

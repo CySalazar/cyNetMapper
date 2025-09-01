@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{Manager, Window};
 use tokio::sync::broadcast;
 use std::time::Duration;
+use tracing::{debug, error, info, warn};
 
 use crate::{ScanProgress, ScanStatus, GuiError, GuiResult};
 
@@ -88,13 +89,32 @@ impl EventEmitter {
 
     /// Emit a GUI event to the frontend
     pub fn emit(&self, event: GuiEvent) -> GuiResult<()> {
+        debug!(
+            event_type = ?std::mem::discriminant(&event),
+            "Emitting GUI event to frontend"
+        );
+        
         self.window
             .emit("gui-event", &event)
-            .map_err(|e| GuiError::ScanError(format!("Failed to emit event: {}", e)))
+            .map_err(|e| {
+                error!(
+                    error = %e,
+                    event_type = ?std::mem::discriminant(&event),
+                    "Failed to emit GUI event"
+                );
+                GuiError::ScanError(format!("Failed to emit event: {}", e))
+            })
     }
 
     /// Emit scan progress update
     pub fn emit_scan_progress(&self, progress: ScanProgress) -> GuiResult<()> {
+        debug!(
+            scan_id = %progress.scan_id,
+            status = ?progress.status,
+            progress_percentage = progress.progress_percentage,
+            current_target = ?progress.current_target,
+            "Emitting scan progress update"
+        );
         self.emit(GuiEvent::ScanProgress(progress))
     }
 
@@ -105,6 +125,12 @@ impl EventEmitter {
         success: bool,
         message: Option<String>,
     ) -> GuiResult<()> {
+        info!(
+            scan_id = %scan_id,
+            success = success,
+            message = ?message,
+            "Emitting scan completed event"
+        );
         self.emit(GuiEvent::ScanCompleted {
             scan_id,
             success,
@@ -119,6 +145,12 @@ impl EventEmitter {
         host_address: String,
         hostname: Option<String>,
     ) -> GuiResult<()> {
+        debug!(
+            scan_id = %scan_id,
+            host_address = %host_address,
+            hostname = ?hostname,
+            "Emitting host discovered event"
+        );
         self.emit(GuiEvent::HostDiscovered {
             scan_id,
             host_address,
@@ -134,6 +166,13 @@ impl EventEmitter {
         port: u16,
         service: Option<String>,
     ) -> GuiResult<()> {
+        debug!(
+            scan_id = %scan_id,
+            host_address = %host_address,
+            port = port,
+            service = ?service,
+            "Emitting port discovered event"
+        );
         self.emit(GuiEvent::PortDiscovered {
             scan_id,
             host_address,

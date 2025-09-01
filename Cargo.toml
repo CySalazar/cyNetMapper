@@ -9,7 +9,8 @@ members = [
     "crates/ffi",
     "crates/gui",
     "crates/gui/src-tauri",
-    "crates/cyndiff"
+    "crates/cyndiff",
+    "tests"
 ]
 resolver = "2"
 

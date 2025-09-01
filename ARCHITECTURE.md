@@ -28,6 +28,7 @@ graph TB
         Scheduler[Scan Scheduler]
         RateLimit[Rate Limiter]
         Results[Results Manager]
+        Events[Event System]
     end
     
     subgraph "Discovery Modules"
@@ -52,6 +53,12 @@ graph TB
         SBOM[SBOM/SLSA]
     end
     
+    subgraph "Testing & Quality"
+        IntegrationTests[Integration Tests]
+        EventTests[Event System Tests]
+        ParityTests[GUI/CLI Parity]
+    end
+    
     subgraph "External Systems"
         Network[Target Networks]
         Files[File System]
@@ -66,12 +73,20 @@ graph TB
     Core --> Scheduler
     Core --> RateLimit
     Core --> Results
+    Core --> Events
+    
+    Events --> GUI
+    Events --> API
     
     Scheduler --> HostDisc
     Scheduler --> PortScan
     Scheduler --> ServiceDet
     Scheduler --> OSFinger
     Scheduler --> Traceroute
+    
+    HostDisc --> Events
+    PortScan --> Events
+    ServiceDet --> Events
     
     HostDisc --> NetworkMac
     HostDisc --> NetworkLinux
@@ -87,6 +102,11 @@ graph TB
     Results --> XML
     Results --> CSV
     Results --> SBOM
+    
+    IntegrationTests --> Core
+    EventTests --> Events
+    ParityTests --> CLI
+    ParityTests --> GUI
     
     NetworkMac --> Network
     NetworkLinux --> Network
@@ -143,6 +163,57 @@ graph TB
 - **Passive Analysis**: TTL, window size, TCP options
 - **Active Probes**: ICMP responses, TCP behavior
 - **Confidence Scoring**: Statistical analysis
+
+### Event System
+
+**Real-time Event Architecture:**
+- Structured event emission during scanning operations
+- Thread-safe event broadcasting with async/await
+- GUI integration through Tauri event bridge
+- Comprehensive logging with tracing integration
+
+**Event Types:**
+- **ScanStarted**: Scan initiation with metadata
+- **HostDiscovered**: Real-time host discovery notifications
+- **PortDiscovered**: Live port status updates with service info
+- **ScanProgress**: Periodic progress metrics and ETA
+- **ScanCompleted**: Final results with performance data
+- **Error**: Detailed error events with context
+
+**Event Flow:**
+```
+Core Engine → Event Emitter → GUI Bridge → Frontend Store → UI Updates
+     ↓              ↓              ↓              ↓              ↓
+Structured    Thread-safe     Tauri Events   State Mgmt   Real-time UI
+ Logging      Broadcasting                                        
+```
+
+**Performance Considerations:**
+- Event throttling to prevent UI flooding
+- Efficient serialization (JSON/bincode)
+- Memory-conscious event cleanup
+- Async event processing
+
+### Integration Testing
+
+**Test Architecture:**
+- Comprehensive GUI/CLI parity verification
+- Event system functionality testing
+- Concurrent scan handling validation
+- Error recovery and resilience testing
+
+**Test Categories:**
+- **Core Scanner Tests**: Basic functionality verification
+- **Result Consistency**: GUI vs CLI output comparison
+- **Concurrent Operations**: Multi-scan coordination
+- **Error Handling**: Failure scenarios and recovery
+- **Port Range Validation**: Different scanning configurations
+
+**Test Infrastructure:**
+- Dedicated `tests/` workspace member
+- Docker lab environment integration
+- Automated CI/CD test execution
+- Performance benchmarking
 
 ### Platform Adapters
 
