@@ -1,0 +1,165 @@
+[package]
+name = "cynetmapper-ffi"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Foreign Function Interface bindings for cyNetMapper"
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+# Core dependencies
+cynetmapper-core = { path = "../core" }
+cynetmapper-probes = { path = "../probes" }
+cynetmapper-outputs = { path = "../outputs" }
+
+# Async runtime
+tokio = { workspace = true, optional = true }
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+
+# FFI utilities
+libc = "0.2"
+once_cell = { workspace = true }
+parking_lot = { version = "0.12", optional = true }
+
+# C string handling (using std library)
+# std-ffi = "0.1"
+# nul-terminated = "0.1"
+
+# Memory management
+stable_deref_trait = "1.2"
+
+# Parallel processing
+rayon = { workspace = true, optional = true }
+
+# Thread safety
+crossbeam = { version = "0.8", optional = true }
+atomic = "0.6"
+
+# WASM support
+wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", optional = true }
+nodejs = { version = "0.1", optional = true }
+
+# Optional dependencies for specific bindings
+# Python bindings
+pyo3 = { version = "0.20", optional = true, features = ["extension-module"] }
+
+# Node.js bindings
+neon = { version = "0.10", optional = true, default-features = false, features = ["napi-6"] }
+
+# Java bindings (JNI)
+jni = { version = "0.21", optional = true }
+
+# .NET bindings (placeholder - would need actual .NET interop crate)
+# netcoreapp = { version = "0.1", optional = true }
+
+# Go bindings support
+cgo = { version = "0.1", optional = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+proptest = { workspace = true }
+criterion = { workspace = true }
+
+[features]
+default = ["c-api"]
+
+# Core FFI
+c-api = []
+cpp-api = []
+
+# Language bindings
+python = ["pyo3"]
+node = ["neon"]
+java = ["jni"]
+# dotnet = ["netcoreapp"]
+go = ["cgo"]
+
+# Mobile platforms
+android = ["java"]
+ios = ["c-api"]
+
+# WebAssembly
+wasm = ["wasm-bindgen"]
+wasm-web = ["wasm", "web-sys"]
+wasm-node = ["wasm", "nodejs"]
+
+# Advanced features
+thread-safe = ["parking_lot", "crossbeam"]
+async-ffi = ["tokio"]
+callback-support = []
+
+# Performance features
+simd = []
+parallel = ["rayon"]
+
+# Debug features
+logging = ["tracing", "tracing-subscriber"]
+debug-symbols = []
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+# Python extension configuration
+[package.metadata.maturin]
+name = "cynetmapper"
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Networking",
+    "Topic :: Security",
+]
+
+[[bench]]
+name = "ffi_bench"
+harness = false
+required-features = ["c-api"]
+
+[[example]]
+name = "c_example"
+required-features = ["c-api"]
+
+[[example]]
+name = "python_example"
+required-features = ["python"]
+
+[[example]]
+name = "node_example"
+required-features = ["node"]
+
+# Build script for generating bindings
+[build-dependencies]
+cbindgen = { version = "0.26", optional = true }
+cxx-build = { version = "1.0", optional = true }

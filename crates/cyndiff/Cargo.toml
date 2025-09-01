@@ -1,0 +1,23 @@
+[package]
+name = "cyndiff"
+version = "0.1.0"
+edition = "2021"
+authors = ["cyNetMapper Team"]
+description = "A command-line tool for comparing cyNetMapper scan results"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/cynetmapper/cynetmapper"
+keywords = ["network", "security", "scanning", "diff", "comparison"]
+categories = ["command-line-utilities", "network-programming"]
+
+[dependencies]
+cynetmapper-outputs = { path = "../outputs" }
+tokio = { workspace = true, features = ["full"] }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+
+[[bin]]
+name = "cyndiff"
+path = "src/main.rs"

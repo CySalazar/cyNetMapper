@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/src/assets/icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>cyNetMapper - Network Scanner</title>
+    <meta name="description" content="Comprehensive network scanning and analysis tool with modern desktop interface" />
+    <meta name="keywords" content="network scanner, port scanner, security tool, network analysis" />
+    <meta name="author" content="cyNetMapper Team" />
+    
+    <!-- Preload critical fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    
+    <!-- Theme detection script -->
+    <script>
+      // Prevent flash of unstyled content
+      (function() {
+        const theme = localStorage.getItem('theme') || 
+          (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.classList.add(theme);
+      })();
+    </script>
+    
+    <!-- CSP for security -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' asset: https://asset.localhost data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; script-src 'self' 'unsafe-eval'; connect-src 'self' ipc: https://ipc.localhost;">
+  </head>
+  <body class="bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- Loading fallback -->
+    <noscript>
+      <div style="display: flex; align-items: center; justify-content: center; height: 100vh; font-family: system-ui, sans-serif;">
+        <div style="text-align: center;">
+          <h1>cyNetMapper</h1>
+          <p>JavaScript is required to run this application.</p>
+        </div>
+      </div>
+    </noscript>
+  </body>
+</html>

@@ -1,0 +1,141 @@
+[package]
+name = "cynetmapper-cli"
+version = "0.1.0"
+edition = "2021"
+authors = ["Matteo Sala <matteo@cynetmapper.com>"]
+description = "Command-line interface for cyNetMapper network scanner"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/matteosala/cyNetMapper"
+keywords = ["network", "scanner", "security", "cli", "nmap"]
+categories = ["command-line-utilities", "network-programming"]
+readme = "README.md"
+
+[[bin]]
+name = "cynetmapper"
+path = "src/main.rs"
+
+[dependencies]
+# Core dependencies
+cynetmapper-core = { path = "../core", version = "0.1.0" }
+# cynetmapper-probes = { path = "../probes", version = "0.1.0" } # Temporarily disabled
+
+# CLI framework
+clap = { version = "4.4", features = ["derive", "color", "suggestions"] }
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", optional = true }
+serde_yaml = { version = "0.9", optional = true }
+toml = "0.8"
+
+# Logging and tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+
+# Terminal UI
+colored = "2.1"
+indicatif = { version = "0.17", features = ["tokio"] }
+console = "0.15"
+terminal_size = "0.3"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+humantime = "2.1"
+once_cell = "1.19"
+futures = "0.3"
+tokio-util = "0.7"
+
+# Network utilities
+cidr = "0.2"
+ipnet = "2.9"
+resolv-conf = "0.7"
+
+# File I/O
+tempfile = "3.8"
+dirs = "5.0"
+
+# Configuration
+config = "0.14"
+
+[dev-dependencies]
+tokio-test = "0.4"
+assert_cmd = "2.0"
+predicates = "3.0"
+tempfile = "3.8"
+
+[features]
+default = ["json-output", "yaml-output", "xml-output"]
+
+# Output formats
+json-output = ["serde_json"]
+yaml-output = ["serde_yaml"]
+xml-output = []
+
+# Advanced features (temporarily disabled)
+# raw-sockets = ["cynetmapper-probes/raw-sockets"]
+# os-fingerprinting = ["cynetmapper-probes/os-fingerprinting"]
+# service-detection = ["cynetmapper-probes/service-detection"]
+# banner-grabbing = ["cynetmapper-probes/banner-grabbing"]
+
+# Platform-specific features
+unix-features = []
+windows-features = []
+
+# Development features
+debug-output = []
+verbose-logging = []
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+# Optimization for release builds
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Development profile
+[profile.dev]
+opt-level = 0
+debug = true
+overflow-checks = true
+
+# Profile for benchmarks
+[profile.bench]
+opt-level = 3
+debug = false
+lto = true
+
+# Examples
+[[example]]
+name = "basic_scan"
+path = "examples/basic_scan.rs"
+
+[[example]]
+name = "port_range_scan"
+path = "examples/port_range_scan.rs"
+
+[[example]]
+name = "service_detection"
+path = "examples/service_detection.rs"
+
+[[example]]
+name = "output_formats"
+path = "examples/output_formats.rs"
+
+# Benchmarks
+[[bench]]
+name = "cli_performance"
+harness = false
+path = "benches/cli_performance.rs"

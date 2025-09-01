@@ -1,0 +1,33 @@
+. {
+    # Enable query logging
+    log
+    
+    # Enable error logging
+    errors
+    
+    # Forward to upstream DNS
+    forward . 8.8.8.8 8.8.4.4
+    
+    # Enable caching
+    cache 30
+    
+    # Enable health check endpoint
+    health :8080
+    
+    # Enable metrics
+    prometheus :9153
+}
+
+# Local lab zone
+lab.local {
+    file /zones/lab.local.zone
+    log
+    errors
+}
+
+# Reverse DNS for lab network
+0.20.172.in-addr.arpa {
+    file /zones/172.20.0.zone
+    log
+    errors
+}

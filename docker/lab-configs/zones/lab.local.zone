@@ -1,0 +1,52 @@
+$TTL 300
+@   IN  SOA dns.lab.local. admin.lab.local. (
+        2024012001  ; Serial
+        3600        ; Refresh
+        1800        ; Retry
+        604800      ; Expire
+        300         ; Minimum TTL
+    )
+
+; Name servers
+@           IN  NS      dns.lab.local.
+
+; A records for lab services
+dns         IN  A       172.20.0.40
+nginx       IN  A       172.20.0.10
+apache      IN  A       172.20.0.11
+mysql       IN  A       172.20.0.20
+postgres    IN  A       172.20.0.21
+ssh         IN  A       172.20.0.30
+ftp         IN  A       172.20.0.31
+smtp        IN  A       172.20.0.50
+redis       IN  A       172.20.0.60
+dvwa        IN  A       172.20.0.70
+nettools    IN  A       172.20.0.100
+scanner     IN  A       172.20.0.200
+
+; Service aliases
+web         IN  CNAME   nginx.lab.local.
+web2        IN  CNAME   apache.lab.local.
+db          IN  CNAME   mysql.lab.local.
+db2         IN  CNAME   postgres.lab.local.
+cache       IN  CNAME   redis.lab.local.
+mail        IN  CNAME   smtp.lab.local.
+vuln        IN  CNAME   dvwa.lab.local.
+
+; SRV records for services
+_http._tcp      IN  SRV 10 5 80    nginx.lab.local.
+_http._tcp      IN  SRV 20 5 80    apache.lab.local.
+_https._tcp     IN  SRV 10 5 443   nginx.lab.local.
+_ssh._tcp       IN  SRV 10 5 2222  ssh.lab.local.
+_ftp._tcp       IN  SRV 10 5 21    ftp.lab.local.
+_mysql._tcp     IN  SRV 10 5 3306  mysql.lab.local.
+_postgresql._tcp IN SRV 10 5 5432  postgres.lab.local.
+_smtp._tcp      IN  SRV 10 5 1025  smtp.lab.local.
+_redis._tcp     IN  SRV 10 5 6379  redis.lab.local.
+
+; TXT records for testing
+@           IN  TXT     "cyNetMapper test lab domain"
+nginx       IN  TXT     "v=test1; service=nginx"
+apache      IN  TXT     "v=test1; service=apache"
+mysql       IN  TXT     "v=test1; service=mysql"
+postgres    IN  TXT     "v=test1; service=postgresql"

@@ -1,0 +1,157 @@
+[package]
+name = "cynetmapper-outputs"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Output formatters and exporters for cyNetMapper"
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Core dependencies
+cynetmapper-core = { path = "../core" }
+cynetmapper-probes = { path = "../probes" }
+
+# Async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true, optional = true }
+serde_yaml = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
+quick-xml = { workspace = true, optional = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# File I/O
+tokio-util = { workspace = true, optional = true }
+tempfile = { workspace = true }
+dirs = { workspace = true }
+
+# Utilities
+once_cell = { workspace = true }
+chrono = { workspace = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+url = { workspace = true }
+
+# Collections
+indexmap = { workspace = true }
+smallvec = { workspace = true }
+
+# Parallel processing
+rayon = { workspace = true, optional = true }
+
+# Template engine
+handlebars = { version = "4.5", optional = true }
+tera = { version = "1.19", optional = true }
+
+# CSV handling
+csv = { version = "1.3", optional = true }
+
+# Compression
+flate2 = { version = "1.0", optional = true }
+tar = { version = "0.4", optional = true }
+zip = { version = "0.6", optional = true }
+
+# Image generation (for diagrams)
+plotters = { version = "0.3", optional = true }
+resvg = { version = "0.37", optional = true }
+
+# PDF generation
+printpdf = { version = "0.6", optional = true }
+
+# Database exports
+rusqlite = { version = "0.30", optional = true }
+tokio-postgres = { version = "0.7", optional = true }
+
+# Network diagram generation
+graphviz-rust = { version = "0.6", optional = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+proptest = { workspace = true }
+criterion = { workspace = true }
+tempfile = { workspace = true }
+
+[features]
+default = ["json", "yaml", "xml", "csv-format", "html"]
+
+# Basic formats
+json = ["serde_json"]
+yaml = ["serde_yaml"]
+xml = ["quick-xml"]
+toml-format = ["toml"]
+csv-format = ["csv"]
+
+# Rich formats
+html = ["handlebars"]
+markdown = []
+pdf = ["printpdf"]
+
+# Nmap compatibility
+nmap-xml = ["quick-xml"]
+nmap-gnmap = []
+nmap-normal = []
+
+# Database exports
+sqlite = ["rusqlite"]
+postgres = ["tokio-postgres"]
+
+# Compression formats
+compression = ["flate2", "tar", "zip"]
+
+# Visualization
+diagrams = ["plotters", "resvg"]
+network-graphs = ["graphviz-rust"]
+charts = ["plotters"]
+
+# Advanced features
+templating = ["handlebars", "tera"]
+streaming = ["tokio-util"]
+batch-processing = []
+
+# Integration formats
+elastic = ["serde_json"]
+splunk = []
+logstash = ["serde_json"]
+
+# Performance features
+parallel = ["rayon"]
+simd = []
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[[bench]]
+name = "output_bench"
+harness = false
+required-features = ["json"]
+
+[[example]]
+name = "basic_export"
+required-features = ["json", "xml"]
+
+[[example]]
+name = "nmap_compatibility"
+required-features = ["nmap-xml"]
+
+[[example]]
+name = "html_report"
+required-features = ["html", "templating"]
+
+[[example]]
+name = "network_diagram"
+required-features = ["diagrams", "network-graphs"]

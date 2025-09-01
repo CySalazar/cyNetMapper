@@ -1,0 +1,84 @@
+[package]
+name = "cynetmapper-gui-tauri"
+version = "0.1.0"
+edition = "2021"
+authors = ["cyNetMapper Team"]
+description = "Desktop GUI for cyNetMapper network scanner"
+license = "MIT"
+repository = "https://github.com/cynetmapper/cynetmapper"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+chrono = "0.4"
+
+[dependencies]
+cynetmapper-core = { path = "../../core" }
+cynetmapper-probes = { path = "../../probes" }
+cynetmapper-outputs = { path = "../../outputs" }
+cynetmapper-gui = { path = ".." }
+
+# Tauri dependencies
+tauri = { version = "1.5", features = [ "window-set-min-size", "window-set-icon", "window-set-cursor-grab", "window-close", "window-unmaximize", "window-create", "window-set-fullscreen", "window-set-cursor-icon", "window-set-resizable", "window-unminimize", "window-start-dragging", "window-show", "window-request-user-attention", "window-set-size", "window-set-cursor-position", "window-hide", "protocol-asset", "window-set-focus", "window-minimize", "window-set-title", "window-set-position", "window-set-max-size", "window-set-ignore-cursor-events", "window-set-cursor-visible", "window-print", "window-maximize", "window-set-skip-taskbar"] }
+# tauri-plugin-store = "2.0"
+# tauri-plugin-window-state = "2.0"
+# tauri-plugin-shell = "2.0"
+# tauri-plugin-dialog = "2.0"
+# tauri-plugin-notification = "2.0"
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Logging
+log = "0.4"
+env_logger = "0.10"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID generation
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# Configuration
+config = "0.13"
+dirs = "5.0"
+
+# System information
+sysinfo = "0.30"
+
+[features]
+default = ["custom-protocol"]
+# This feature is used for production builds or when `devPath` points to the filesystem
+# DO NOT REMOVE!!
+custom-protocol = ["tauri/custom-protocol"]
+
+# Development features
+dev = []
+
+# System tray feature
+system-tray = []
+
+# Auto-updater feature (disabled)
+# auto-updater = ["tauri/updater"]
+
+# Logging features
+logging = []
+
+# Performance monitoring
+performance = []
+
+# Security features
+security = []
+
+[[bin]]
+name = "cynetmapper-gui-tauri"
+path = "src/main.rs"

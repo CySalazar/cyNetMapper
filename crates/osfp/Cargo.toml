@@ -1,0 +1,99 @@
+[package]
+name = "cynetmapper-osfp"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "OS fingerprinting module for cyNetMapper"
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Core dependencies
+cynetmapper-core = { path = "../core" }
+cynetmapper-probes = { path = "../probes" }
+
+# Async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+
+# Networking
+socket2 = { workspace = true }
+pnet = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Utilities
+once_cell = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+
+# Collections and data structures
+indexmap = { workspace = true }
+smallvec = { workspace = true }
+
+# Hashing and crypto
+sha2 = { workspace = true }
+md5 = { workspace = true }
+
+# Optional dependencies
+rayon = { workspace = true, optional = true }
+rusqlite = { version = "0.30", optional = true }
+tokio-postgres = { version = "0.7", optional = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+proptest = { workspace = true }
+criterion = { workspace = true }
+
+[features]
+default = ["tcp-fingerprinting", "icmp-fingerprinting"]
+
+# Core fingerprinting methods
+tcp-fingerprinting = []
+icmp-fingerprinting = []
+http-fingerprinting = []
+ssh-fingerprinting = []
+
+# Advanced features
+raw-sockets = ["pnet/default"]
+passive-fingerprinting = []
+ml-detection = []
+
+# Database features
+sqlite-db = ["rusqlite"]
+postgres-db = ["tokio-postgres"]
+
+# Performance features
+simd = []
+parallel = ["rayon"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[[bench]]
+name = "fingerprinting_bench"
+harness = false
+required-features = ["tcp-fingerprinting"]
+
+[[example]]
+name = "basic_fingerprinting"
+required-features = ["tcp-fingerprinting"]
+
+[[example]]
+name = "passive_detection"
+required-features = ["passive-fingerprinting"]

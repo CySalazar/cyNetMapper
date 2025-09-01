@@ -1,0 +1,183 @@
+[workspace]
+members = [
+    "crates/core",
+    "crates/probes", 
+    "crates/osfp",
+    "crates/parsers",
+    "crates/outputs",
+    "crates/cli",
+    "crates/ffi",
+    "crates/gui",
+    "crates/gui/src-tauri",
+    "crates/cyndiff"
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+authors = ["cyNetMapper Team"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/cynetmapper/cynetmapper"
+homepage = "https://cynetmapper.org"
+description = "Cross-platform network discovery and mapping tool"
+keywords = ["network", "security", "discovery", "scanning", "nmap"]
+categories = ["network-programming", "command-line-utilities"]
+rust-version = "1.70"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+tokio-util = "0.7"
+futures = "0.3"
+
+# Networking
+socket2 = "0.5"
+pnet = "0.34"
+trust-dns-resolver = "0.23"
+reqwest = { version = "0.11", features = ["json", "rustls-tls"] }
+rustls = "0.22"
+webpki-roots = "0.26"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+toml = "0.8"
+quick-xml = { version = "0.31", features = ["serialize"] }
+
+# CLI
+clap = { version = "4.4", features = ["derive", "env"] }
+clap_complete = "4.4"
+concolor = "0.1"
+indicatif = "0.17"
+
+# Logging and tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Utilities
+uuid = { version = "1.6", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+once_cell = "1.19"
+rand = "0.8"
+base64 = "0.21"
+hex = "0.4"
+
+# Collections
+indexmap = "2.1"
+smallvec = "1.11"
+
+# Text processing
+regex = "1.10"
+
+# Cryptography
+md5 = "0.7"
+
+# Parallel processing
+rayon = "1.8"
+
+# File system
+dirs = "5.0"
+tempfile = "3.8"
+
+# Network
+url = "2.4"
+
+# Configuration
+config = "0.14"
+
+# Platform-specific
+nix = "0.27"
+libc = "0.2"
+winapi = { version = "0.3", features = ["winsock2", "ws2def", "ws2ipdef", "iphlpapi"] }
+windows = { version = "0.52", features = ["Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock"] }
+
+# Platform-specific dependencies should be defined in individual crate Cargo.toml files
+# nix = "0.27"
+# libc = "0.2"
+# winapi = { version = "0.3", features = ["winsock2", "ws2def", "ws2ipdef", "iphlpapi"] }
+# windows = { version = "0.52", features = ["Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock"] }
+
+# GUI (Tauri)
+tauri = { version = "1.5", features = ["api-all"] }
+tauri-build = { version = "1.5", features = [] }
+
+# FFI for mobile
+cbindgen = "0.26"
+
+# Testing
+tokio-test = "0.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.4"
+
+# Security
+ring = "0.17"
+sha2 = "0.10"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 0
+debug = true
+overflow-checks = true
+
+[profile.test]
+opt-level = 1
+debug = true
+
+# Benchmark profile
+[profile.bench]
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = false
+
+# Security audit configuration
+[workspace.metadata.audit]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/RustSec/advisory-db"]
+target-os = ["linux", "macos", "windows"]
+target-arch = ["x86_64", "aarch64"]
+
+# Cargo deny configuration
+[workspace.metadata.deny]
+checksum = "sha256"
+vulnerabilities = "deny"
+unmaintained = "warn"
+yanked = "deny"
+notice = "warn"
+ignore = []
+
+# Documentation
+[workspace.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+# Release configuration
+[workspace.metadata.release]
+consolidate-commits = true
+no-dev-version = true
+pre-release-commit-message = "chore: Release {{crate_name}} version {{version}}"
+post-release-commit-message = "chore: Bump {{crate_name}} version to {{next_version}}"
+tag-message = "{{crate_name}} {{version}}"
+tag-prefix = "v"
+push = true
+shared-version = true
+
+# SBOM generation
+[workspace.metadata.cyclonedx]
+format = "json"
+output = "sbom.json"
+include-dev = false
+include-transitive = true

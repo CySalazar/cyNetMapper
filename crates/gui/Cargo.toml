@@ -1,0 +1,159 @@
+[package]
+name = "cynetmapper-gui"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Desktop GUI application for cyNetMapper"
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Core dependencies
+cynetmapper-core = { path = "../core" }
+cynetmapper-probes = { path = "../probes" }
+cynetmapper-outputs = { path = "../outputs" }
+
+# Tauri framework
+tauri = { version = "1.5", features = ["api-all", "system-tray"] }
+tauri-build = { version = "1.5", features = ["codegen"] }
+
+# Async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+
+# Random number generation
+rand = "0.8"
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true }
+tracing-appender = { version = "0.2", optional = true }
+
+# Utilities
+once_cell = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+# File system
+dirs = { workspace = true }
+tempfile = { workspace = true }
+
+# Configuration
+config = { workspace = true }
+
+# Database (for storing scan history)
+rusqlite = { version = "0.30", features = ["bundled"], optional = true }
+
+# Networking (for real-time updates)
+tokio-tungstenite = { version = "0.20", optional = true }
+
+# Image handling
+image = { version = "0.24", optional = true }
+base64 = { workspace = true }
+
+# Charts and visualization
+plotters = { version = "0.3", optional = true }
+resvg = { version = "0.37", optional = true }
+
+# System integration
+sysinfo = { version = "0.29", optional = true }
+notify-rust = { version = "4.10", optional = true }
+
+# Window management
+window-vibrancy = { version = "0.4", optional = true }
+
+# Parallel processing
+rayon = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+proptest = { workspace = true }
+criterion = { workspace = true }
+tauri-driver = "0.1"
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = ["codegen"] }
+
+[features]
+default = ["desktop", "system-tray"]
+
+# Core features
+desktop = ["tauri/api-all"]
+system-tray = ["tauri/system-tray"]
+# auto-updater = ["tauri/updater"]
+
+# Advanced GUI features
+charts = ["plotters"]
+visualization = ["resvg", "plotters"]
+notifications = ["notify-rust"]
+window-effects = ["window-vibrancy"]
+
+# Data features
+database = ["rusqlite"]
+real-time = ["tokio-tungstenite"]
+export-images = ["image"]
+
+# System integration
+system-info = ["sysinfo"]
+file-associations = []
+protocol-handler = []
+
+# Development features
+devtools = ["tauri/devtools"]
+debug-logging = ["tracing-subscriber"]
+
+# Platform-specific features
+macos = ["tauri/macos-private-api"]
+windows = ["tauri/windows7-compat"]
+linux = []
+
+# Performance features
+simd = []
+parallel = ["rayon"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+# Tauri configuration
+[package.metadata.tauri]
+name = "cyNetMapper"
+identifier = "org.cynetmapper.app"
+version = "0.1.0"
+description = "Cross-platform network discovery and mapping tool"
+authors = ["cyNetMapper Team"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/cynetmapper/cynetmapper"
+homepage = "https://cynetmapper.org"
+
+[[bench]]
+name = "gui_bench"
+harness = false
+required-features = ["desktop"]
+
+[[example]]
+name = "basic_gui"
+required-features = ["desktop"]
+
+[[example]]
+name = "system_tray"
+required-features = ["system-tray"]
+
+[[example]]
+name = "charts_demo"
+required-features = ["charts"]

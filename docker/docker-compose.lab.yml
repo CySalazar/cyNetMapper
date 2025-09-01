@@ -1,0 +1,204 @@
+# cyNetMapper Testing Lab
+# This docker-compose setup creates a controlled network environment
+# for testing cyNetMapper's scanning capabilities
+
+version: '3.8'
+
+services:
+  # Web servers
+  nginx-web:
+    image: nginx:alpine
+    container_name: lab-nginx
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./lab-configs/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./lab-configs/ssl:/etc/nginx/ssl:ro
+    networks:
+      lab-network:
+        ipv4_address: 172.20.0.10
+    restart: unless-stopped
+
+  apache-web:
+    image: httpd:alpine
+    container_name: lab-apache
+    ports:
+      - "8081:80"
+    volumes:
+      - ./lab-configs/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
+    networks:
+      lab-network:
+        ipv4_address: 172.20.0.11
+    restart: unless-stopped
+
+  # Database servers
+  mysql-db:
+    image: mysql:8.0
+    container_name: lab-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: testpass123
+      MYSQL_DATABASE: testdb
+      MYSQL_USER: testuser
+      MYSQL_PASSWORD: testpass
+    ports:
+      - "3306:3306"
+    networks:
+      lab-network:
+        ipv4_address: 172.20.0.20
+    restart: unless-stopped
+
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: lab-postgres
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+    ports:
+      - "5432:5432"
+    networks:
+      lab-network:
+        ipv4_address: 172.20.0.21
+    restart: unless-stopped
+
+  # SSH server
+  ssh-server:
+    image: linuxserver/openssh-server
+    container_name: lab-ssh
+    environment:
+      PUID: 1000
+      PGID: 1000
+      TZ: UTC
+      PUBLIC_KEY_FILE: /config/authorized_keys
+      SUDO_ACCESS: false
+      PASSWORD_ACCESS: true
+      USER_PASSWORD: testpass123
+      USER_NAME: testuser
+    ports:
+      - "2222:2222"
+    volumes:
+      - ./lab-configs/ssh:/config:rw
+    networks:
+      lab-network:
+        ipv4_address: 172.20.0.30
+    restart: unless-stopped
+
+  # FTP server
+  ftp-server:
+    image: stilliard/pure-ftpd
+    container_name: lab-ftp
+    environment:
+      PUBLICHOST: 172.20.0.31
+      FTP_USER_NAME: testuser
+      FTP_USER_PASS: testpass123
+      FTP_USER_HOME: /home/testuser
+    ports:
+      - "21:21"
+      - "30000-30009:30000-30009"
+    networks:
+      lab-network:
+        ipv4_address: 172.20.0.31
+    restart: unless-stopped
+
+  # DNS server
+  dns-server:
+    image: coredns/coredns
+    container_name: lab-dns
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+    volumes:
+      - ./lab-configs/Corefile:/Corefile:ro
+      - ./lab-configs/zones:/zones:ro
+    networks:
+      lab-network:
+        ipv4_address: 172.20.0.40
+    restart: unless-stopped
+
+  # SMTP server
+  smtp-server:
+    image: mailhog/mailhog
+    container_name: lab-smtp
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      lab-network:
+        ipv4_address: 172.20.0.50
+    restart: unless-stopped
+
+  # Redis cache
+  redis-cache:
+    image: redis:alpine
+    container_name: lab-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass testpass123
+    networks:
+      lab-network:
+        ipv4_address: 172.20.0.60
+    restart: unless-stopped
+
+  # Vulnerable services for testing
+  dvwa:
+    image: vulnerables/web-dvwa
+    container_name: lab-dvwa
+    ports:
+      - "8082:80"
+    networks:
+      lab-network:
+        ipv4_address: 172.20.0.70
+    restart: unless-stopped
+
+  # Network tools container
+  nettools:
+    image: nicolaka/netshoot
+    container_name: lab-nettools
+    command: sleep infinity
+    networks:
+      lab-network:
+        ipv4_address: 172.20.0.100
+    restart: unless-stopped
+
+  # cyNetMapper scanner
+  cynetmapper:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: lab-scanner
+    volumes:
+      - ./results:/app/data
+      - ./lab-configs:/app/config
+    networks:
+      lab-network:
+        ipv4_address: 172.20.0.200
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    depends_on:
+      - nginx-web
+      - apache-web
+      - mysql-db
+      - postgres-db
+      - ssh-server
+      - ftp-server
+      - dns-server
+      - smtp-server
+      - redis-cache
+      - dvwa
+    command: sleep infinity  # Keep container running for manual testing
+    restart: unless-stopped
+
+networks:
+  lab-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+
+volumes:
+  mysql-data:
+  postgres-data:
+  ssh-config:

@@ -1,0 +1,136 @@
+[package]
+name = "cynetmapper-parsers"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Network data parsers and protocol analyzers for cyNetMapper"
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+# Core dependencies
+cynetmapper-core = { path = "../core" }
+
+# Async runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+
+# Networking
+socket2 = { workspace = true }
+pnet = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true, optional = true }
+serde_yaml = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
+quick-xml = { workspace = true, optional = true }
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Text processing
+regex = { workspace = true, optional = true }
+nom = { version = "7.1", optional = true }
+encoding_rs = { version = "0.8", optional = true }
+
+# Utilities
+once_cell = { workspace = true }
+chrono = { workspace = true }
+base64 = { workspace = true }
+hex = { workspace = true }
+
+# Collections
+indexmap = { workspace = true }
+smallvec = { workspace = true }
+
+# Compression (optional)
+flate2 = { version = "1.0", optional = true }
+lzma-rs = { version = "0.3", optional = true }
+
+# Network protocol parsing (optional)
+pcap-parser = { version = "0.14", optional = true }
+etherparse = { version = "0.14", optional = true }
+
+# HTTP parsing (optional)
+httparse = { version = "1.8", optional = true }
+url = { version = "2.4", optional = true }
+
+# DNS parsing (optional)
+trust-dns-proto = { version = "0.23", optional = true }
+
+# TLS/SSL parsing (optional)
+rustls-pemfile = { version = "2.0", optional = true }
+x509-parser = { version = "0.15", optional = true }
+
+# Optional dependencies
+rayon = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio-test = { workspace = true }
+proptest = { workspace = true }
+criterion = { workspace = true }
+hex-literal = "0.4"
+
+[features]
+default = ["http-parser", "dns-parser", "tls-parser"]
+
+# Protocol parsers
+http-parser = ["httparse", "url"]
+dns-parser = ["trust-dns-proto"]
+tls-parser = ["rustls-pemfile", "x509-parser"]
+smtp-parser = []
+ftp-parser = []
+ssh-parser = []
+snmp-parser = []
+
+# Data formats
+xml-parser = ["quick-xml"]
+json-parser = ["serde_json"]
+yaml-parser = ["serde_yaml"]
+toml-parser = ["toml"]
+
+# Network capture
+pcap-support = ["pcap-parser", "etherparse"]
+raw-packets = ["pnet/default"]
+
+# Compression support
+compression = ["flate2", "lzma-rs"]
+
+# Advanced parsing
+deep-inspection = []
+pattern-matching = ["regex"]
+encoding-detection = ["encoding_rs"]
+
+# Performance features
+simd = []
+parallel = ["rayon"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[[bench]]
+name = "parsing_bench"
+harness = false
+required-features = ["http-parser"]
+
+[[example]]
+name = "http_parsing"
+required-features = ["http-parser"]
+
+[[example]]
+name = "pcap_analysis"
+required-features = ["pcap-support"]
+
+[[example]]
+name = "protocol_detection"
+required-features = ["deep-inspection"]

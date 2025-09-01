@@ -1,0 +1,25 @@
+$TTL 300
+@   IN  SOA dns.lab.local. admin.lab.local. (
+        2024012001  ; Serial
+        3600        ; Refresh
+        1800        ; Retry
+        604800      ; Expire
+        300         ; Minimum TTL
+    )
+
+; Name servers
+@           IN  NS      dns.lab.local.
+
+; PTR records for reverse DNS
+10          IN  PTR     nginx.lab.local.
+11          IN  PTR     apache.lab.local.
+20          IN  PTR     mysql.lab.local.
+21          IN  PTR     postgres.lab.local.
+30          IN  PTR     ssh.lab.local.
+31          IN  PTR     ftp.lab.local.
+40          IN  PTR     dns.lab.local.
+50          IN  PTR     smtp.lab.local.
+60          IN  PTR     redis.lab.local.
+70          IN  PTR     dvwa.lab.local.
+100         IN  PTR     nettools.lab.local.
+200         IN  PTR     scanner.lab.local.

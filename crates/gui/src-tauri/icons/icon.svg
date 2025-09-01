@@ -1,0 +1,45 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="networkGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4F46E5;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7C3AED;stop-opacity:1" />
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+      <feMerge> 
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/> 
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="64" cy="64" r="60" fill="url(#networkGradient)" stroke="#1E293B" stroke-width="2"/>
+  
+  <!-- Network nodes -->
+  <circle cx="32" cy="32" r="6" fill="#10B981" filter="url(#glow)"/>
+  <circle cx="96" cy="32" r="6" fill="#10B981" filter="url(#glow)"/>
+  <circle cx="32" cy="96" r="6" fill="#10B981" filter="url(#glow)"/>
+  <circle cx="96" cy="96" r="6" fill="#10B981" filter="url(#glow)"/>
+  <circle cx="64" cy="64" r="8" fill="#F59E0B" filter="url(#glow)"/>
+  
+  <!-- Network connections -->
+  <line x1="32" y1="32" x2="64" y2="64" stroke="#E5E7EB" stroke-width="2" opacity="0.8"/>
+  <line x1="96" y1="32" x2="64" y2="64" stroke="#E5E7EB" stroke-width="2" opacity="0.8"/>
+  <line x1="32" y1="96" x2="64" y2="64" stroke="#E5E7EB" stroke-width="2" opacity="0.8"/>
+  <line x1="96" y1="96" x2="64" y2="64" stroke="#E5E7EB" stroke-width="2" opacity="0.8"/>
+  
+  <!-- Scanning waves -->
+  <circle cx="64" cy="64" r="20" fill="none" stroke="#06B6D4" stroke-width="1" opacity="0.6">
+    <animate attributeName="r" values="20;35;20" dur="2s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.6;0.2;0.6" dur="2s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="64" cy="64" r="25" fill="none" stroke="#06B6D4" stroke-width="1" opacity="0.4">
+    <animate attributeName="r" values="25;40;25" dur="2.5s" repeatCount="indefinite"/>
+    <animate attributeName="opacity" values="0.4;0.1;0.4" dur="2.5s" repeatCount="indefinite"/>
+  </circle>
+  
+  <!-- cyNet text -->
+  <text x="64" y="110" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" fill="#1E293B">cyNet</text>
+  <text x="64" y="122" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" fill="#64748B">MAPPER</text>
+</svg>
