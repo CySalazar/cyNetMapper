@@ -11,7 +11,7 @@ import {
   ShieldExclamationIcon,
   ExclamationTriangleIcon,
 } from '@heroicons/react/24/outline';
-import { ScanResults, HostInfo, PortInfo } from '../../types';
+import { HostInfo, PortInfo } from '../../types';
 
 interface FilterOptions {
   status: string;
@@ -21,9 +21,9 @@ interface FilterOptions {
 }
 
 export function ResultsView() {
-  const { scanResults, scanHistory } = useAppStore();
+  const { currentScan, scanHistory } = useAppStore();
   
-  const [selectedScan, setSelectedScan] = useState<string>('');
+  const [selectedScan] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [filters, setFilters] = useState<FilterOptions>({
     status: 'all',
@@ -32,15 +32,15 @@ export function ResultsView() {
     host: '',
   });
   const [expandedHosts, setExpandedHosts] = useState<Set<string>>(new Set());
-  const [viewMode, setViewMode] = useState<'table' | 'tree'>('table');
+  // const [viewMode, setViewMode] = useState<'table' | 'tree'>('table');
   
   // Get current scan results
   const currentResults = useMemo(() => {
     if (selectedScan && scanHistory) {
-      return scanHistory.find(scan => scan.id === selectedScan)?.results;
+      return scanHistory.find(scan => scan.scan_id === selectedScan);
     }
-    return scanResults;
-  }, [selectedScan, scanHistory, scanResults]);
+    return currentScan;
+  }, [selectedScan, scanHistory, currentScan]);
   
   // Filter and search results
   const filteredHosts = useMemo(() => {
@@ -52,7 +52,7 @@ export function ResultsView() {
         const query = searchQuery.toLowerCase();
         const matchesHost = host.ip.toLowerCase().includes(query) ||
                            (host.hostname && host.hostname.toLowerCase().includes(query));
-        const matchesPort = host.ports?.some(port => 
+        const matchesPort = host.ports?.some((port: PortInfo) => 
           port.port.toString().includes(query) ||
           (port.service && port.service.name.toLowerCase().includes(query))
         );
@@ -66,7 +66,7 @@ export function ResultsView() {
       
       // Status filter
       if (filters.status !== 'all') {
-        const hasMatchingPorts = host.ports?.some(port => {
+        const hasMatchingPorts = host.ports?.some((port: PortInfo) => {
           if (filters.status === 'open') return port.state === 'Open';
           if (filters.status === 'closed') return port.state === 'Closed';
           if (filters.status === 'filtered') return port.state === 'Filtered';
@@ -77,7 +77,7 @@ export function ResultsView() {
       
       // Service filter
       if (filters.service !== 'all') {
-        const hasMatchingService = host.ports?.some(port => 
+        const hasMatchingService = host.ports?.some((port: PortInfo) => 
           port.service?.name === filters.service
         );
         if (!hasMatchingService) return false;
@@ -85,7 +85,7 @@ export function ResultsView() {
       
       // Port filter
       if (filters.port) {
-        const hasMatchingPort = host.ports?.some(port => 
+        const hasMatchingPort = host.ports?.some((port: PortInfo) => 
           port.port.toString().includes(filters.port)
         );
         if (!hasMatchingPort) return false;
@@ -100,8 +100,8 @@ export function ResultsView() {
     if (!currentResults?.hosts) return [];
     
     const services = new Set<string>();
-    currentResults.hosts.forEach(host => {
-      host.ports?.forEach(port => {
+    currentResults.hosts.forEach((host: HostInfo) => {
+      host.ports?.forEach((port: PortInfo) => {
         if (port.service?.name) {
           services.add(port.service.name);
         }
@@ -260,7 +260,7 @@ export function ResultsView() {
           </div>
         ) : (
           <div className="divide-y divide-gray-200 dark:divide-gray-700">
-            {filteredHosts.map((host) => (
+            {filteredHosts.map((host: HostInfo) => (
               <div key={host.ip} className="p-4">
                 {/* Host Header */}
                 <div 
@@ -288,7 +288,7 @@ export function ResultsView() {
                       
                       <div className="flex items-center space-x-4 mt-1">
                         <span className="text-sm text-gray-500 dark:text-gray-400">
-                          {host.ports?.filter(p => p.state === 'Open').length || 0} open ports
+                          {host.ports?.filter((p: PortInfo) => p.state === 'Open').length || 0} open ports
                         </span>
                         
                         {host.os_fingerprint && (
@@ -337,7 +337,7 @@ export function ResultsView() {
                           </tr>
                         </thead>
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                          {host.ports.map((port) => (
+                          {host.ports.map((port: PortInfo) => (
                             <tr key={port.port} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
                                 {port.port}/{port.protocol}
@@ -413,7 +413,7 @@ export function ResultsView() {
           </div>
           
           <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">
-            Scan duration: {currentResults.statistics.scan_duration_ms}ms
+            Scan duration: {currentResults.statistics.scan_duration}ms
           </div>
         </div>
       )}

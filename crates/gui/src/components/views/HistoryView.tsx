@@ -39,7 +39,14 @@ export function HistoryView() {
     
     // Filter by status
     if (filters.status !== 'all') {
-      filtered = filtered.filter(scan => scan.status === filters.status);
+      const statusMap = {
+        'completed': 'Completed',
+        'failed': 'Error', 
+        'cancelled': 'Stopped',
+        'running': 'Running'
+      };
+      const mappedStatus = statusMap[filters.status as keyof typeof statusMap] || filters.status;
+      filtered = filtered.filter(scan => scan.status === mappedStatus);
     }
     
     // Filter by date range
@@ -126,7 +133,7 @@ export function HistoryView() {
     if (selectedScans.size === filteredScans.length) {
       setSelectedScans(new Set());
     } else {
-      setSelectedScans(new Set(filteredScans.map(scan => scan.id)));
+      setSelectedScans(new Set(filteredScans.map(scan => scan.scan_id)));
     }
   };
   
@@ -151,7 +158,7 @@ export function HistoryView() {
     
     const link = document.createElement('a');
     link.href = url;
-    link.download = `scan-${scan.id}-${new Date(scan.start_time).toISOString().split('T')[0]}.json`;
+    link.download = `scan-${scan.scan_id}-${new Date(scan.start_time).toISOString().split('T')[0]}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -160,13 +167,13 @@ export function HistoryView() {
   
   const getStatusIcon = (status: ScanStatus) => {
     switch (status) {
-      case 'completed':
+      case 'Completed':
         return <CheckCircleIcon className="h-5 w-5 text-green-500" />;
-      case 'failed':
+      case 'Error':
         return <XCircleIcon className="h-5 w-5 text-red-500" />;
-      case 'cancelled':
+      case 'Stopped':
         return <ExclamationTriangleIcon className="h-5 w-5 text-yellow-500" />;
-      case 'running':
+      case 'Running':
         return <PlayIcon className="h-5 w-5 text-blue-500" />;
       default:
         return <ClockIcon className="h-5 w-5 text-gray-500" />;
@@ -175,13 +182,13 @@ export function HistoryView() {
   
   const getStatusColor = (status: ScanStatus) => {
     switch (status) {
-      case 'completed':
+      case 'Completed':
         return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
-      case 'failed':
+      case 'Error':
         return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400';
-      case 'cancelled':
+      case 'Stopped':
         return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400';
-      case 'running':
+      case 'Running':
         return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
       default:
         return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400';
@@ -346,12 +353,12 @@ export function HistoryView() {
           {/* Table Body */}
           <div className="divide-y divide-gray-200 dark:divide-gray-600">
             {filteredScans.map((scan) => (
-              <div key={scan.id} className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+              <div key={scan.scan_id} className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
                 <div className="flex items-center">
                   <input
                     type="checkbox"
-                    checked={selectedScans.has(scan.id)}
-                    onChange={() => handleSelectScan(scan.id)}
+                    checked={selectedScans.has(scan.scan_id)}
+                    onChange={() => handleSelectScan(scan.scan_id)}
                     className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-gray-300 rounded mr-4"
                   />
                   

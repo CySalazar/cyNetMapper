@@ -104,6 +104,7 @@ pub enum OutputFormat {
 
 /// Scan results data structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanResults {
     /// Scan metadata
     pub metadata: ScanMetadata,
@@ -115,6 +116,7 @@ pub struct ScanResults {
 
 /// Scan metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanMetadata {
     /// Scan start time
     pub start_time: SystemTime,
@@ -132,6 +134,7 @@ pub struct ScanMetadata {
 
 /// Host scan result
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct HostResult {
     /// Host address
     pub address: String,
@@ -160,6 +163,7 @@ pub enum HostState {
 
 /// Port scan result
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PortResult {
     /// Port number
     pub port: u16,
@@ -197,6 +201,7 @@ pub enum PortState {
 
 /// Service information
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServiceInfo {
     /// Service name
     pub name: String,
@@ -212,6 +217,7 @@ pub struct ServiceInfo {
 
 /// OS fingerprint information
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OsFingerprint {
     /// OS family
     pub family: String,
@@ -227,6 +233,7 @@ pub struct OsFingerprint {
 
 /// Scan statistics
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanStatistics {
     /// Total hosts scanned
     pub total_hosts: usize,

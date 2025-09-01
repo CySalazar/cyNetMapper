@@ -20,7 +20,6 @@ export function Header({ className = '' }: HeaderProps) {
     scanStatus,
     scanProgress,
     toggleSidebar,
-    ui,
     errors,
   } = useAppStore();
   

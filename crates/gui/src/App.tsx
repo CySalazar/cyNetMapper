@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/tauri';
 import { listen } from '@tauri-apps/api/event';
 import { Toaster } from 'react-hot-toast';
@@ -36,10 +36,23 @@ export function App() {
             addEvent(eventData);
           });
 
+          // Listen for host-discovered events specifically
+          const unlistenHostDiscovered = await listen('host-discovered', (event) => {
+            const hostData = event.payload as any;
+            const hostEvent: GuiEvent = {
+              id: Date.now().toString(),
+              timestamp: new Date().toISOString(),
+              event_type: 'HostDiscovered',
+              data: hostData
+            };
+            addEvent(hostEvent);
+          });
+
           // Store cleanup functions
           return () => {
             unlistenProgress();
             unlistenEvents();
+            unlistenHostDiscovered();
           };
         } else {
           // Running in browser - set default config and mock data

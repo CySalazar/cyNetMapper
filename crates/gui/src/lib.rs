@@ -24,12 +24,13 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State, Window};
 use tokio::sync::broadcast;
 use uuid::Uuid;
+use chrono::{DateTime, Utc};
 
 // Core dependencies
 use cynetmapper_core::{Config, NetworkScanner};
@@ -71,8 +72,9 @@ pub enum GuiError {
 /// GUI result type
 pub type GuiResult<T> = Result<T, GuiError>;
 
-/// Scan configuration from the frontend
+/// Scan configuration for the GUI
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanConfig {
     pub targets: Vec<String>,
     pub ports: Option<String>,
@@ -96,8 +98,9 @@ pub enum ScanType {
     Aggressive,
 }
 
-/// Real-time scan progress information
+/// Scan progress information
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ScanProgress {
     pub scan_id: String,
     pub status: ScanStatus,
@@ -136,6 +139,7 @@ pub struct AppState {
 
 /// Application configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppConfig {
     pub default_timeout: u64,
     pub default_concurrency: usize,
@@ -170,6 +174,7 @@ impl Default for AppConfig {
 
 /// Host information for the GUI
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GuiHostInfo {
     pub address: String,
     pub hostname: Option<String>,
@@ -182,6 +187,7 @@ pub struct GuiHostInfo {
 
 /// Port information for the GUI
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GuiPortInfo {
     pub port: u16,
     pub protocol: String,
@@ -195,6 +201,7 @@ pub struct GuiPortInfo {
 
 /// OS fingerprint information for the GUI
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GuiOsFingerprint {
     pub family: String,
     pub version: Option<String>,
@@ -205,6 +212,7 @@ pub struct GuiOsFingerprint {
 
 /// Chart data for visualization
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChartData {
     pub labels: Vec<String>,
     pub datasets: Vec<ChartDataset>,
@@ -212,6 +220,7 @@ pub struct ChartData {
 
 /// Chart dataset
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChartDataset {
     pub label: String,
     pub data: Vec<f64>,
@@ -221,6 +230,7 @@ pub struct ChartDataset {
 
 /// Network topology data for visualization
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NetworkTopology {
     pub nodes: Vec<NetworkNode>,
     pub edges: Vec<NetworkEdge>,
@@ -228,6 +238,7 @@ pub struct NetworkTopology {
 
 /// Network node for topology visualization
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NetworkNode {
     pub id: String,
     pub label: String,
@@ -238,6 +249,7 @@ pub struct NetworkNode {
 
 /// Network edge for topology visualization
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct NetworkEdge {
     pub from: String,
     pub to: String,
@@ -401,7 +413,7 @@ impl AppState {
         });
         
         // Execute scan using probe manager
-        let mut scan_results: Vec<GuiHostInfo> = Vec::new();
+        let mut host_results: HashMap<String, cynetmapper_outputs::HostResult> = HashMap::new();
         let mut completed_scans = 0;
         
         for (target_idx, target) in targets.iter().enumerate() {
@@ -410,6 +422,9 @@ impl AppState {
                 progress.current_target = Some(target.to_string());
                 progress.targets_completed = target_idx;
             });
+            
+            let target_str = target.to_string();
+            let mut open_ports = Vec::new();
             
             for port in &ports {
                 // Check if scan was cancelled
@@ -432,15 +447,30 @@ impl AppState {
                     },
                 };
                 
+                let scan_start = Instant::now();
                 let is_open = tokio::time::timeout(
                     Duration::from_millis(config.timeout_ms),
                     tokio::net::TcpStream::connect(socket_addr)
                 ).await.is_ok_and(|result| result.is_ok());
+                let response_time = scan_start.elapsed();
                 
                 if is_open {
+                    // Create port result for open port
+                    let port_result = cynetmapper_outputs::PortResult {
+                        port: *port,
+                        protocol: cynetmapper_outputs::Protocol::Tcp,
+                        state: cynetmapper_outputs::PortState::Open,
+                        service: None, // TODO: Add service detection
+                        banner: None,  // TODO: Add banner grabbing
+                        response_time: Some(response_time),
+                    };
+                    open_ports.push(port_result);
+                    
                     self.update_scan_progress(&scan_id, |progress| {
                         progress.open_ports_found += 1;
                     });
+                    
+                    tracing::info!("Open port found: {} port {}", target_str, port);
                 }
                 
                 completed_scans += 1;
@@ -475,13 +505,100 @@ impl AppState {
                 // Small delay to prevent overwhelming the system
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
+            
+            // Create or update host result after scanning all ports for this target
+            if !open_ports.is_empty() {
+                let host_result = cynetmapper_outputs::HostResult {
+                    address: target_str.clone(),
+                    state: cynetmapper_outputs::HostState::Up,
+                    hostnames: vec![], // TODO: Add hostname resolution
+                    ports: open_ports.clone(),
+                    os_fingerprint: None, // TODO: Add OS fingerprinting
+                    discovery_method: Some("tcp_connect".to_string()),
+                    response_times: vec![], // TODO: Collect response times
+                };
+                
+                // Emit host-discovered event with aggregated port information
+                let gui_ports: Vec<GuiPortInfo> = open_ports.iter().map(|port_result| {
+                    GuiPortInfo {
+                        port: port_result.port,
+                        protocol: match port_result.protocol {
+                             cynetmapper_outputs::Protocol::Tcp => "tcp".to_string(),
+                             cynetmapper_outputs::Protocol::Udp => "udp".to_string(),
+                             cynetmapper_outputs::Protocol::Sctp => "sctp".to_string(),
+                             cynetmapper_outputs::Protocol::Icmp => "icmp".to_string(),
+                         },
+                         state: match port_result.state {
+                             cynetmapper_outputs::PortState::Open => "open".to_string(),
+                             cynetmapper_outputs::PortState::Closed => "closed".to_string(),
+                             cynetmapper_outputs::PortState::Filtered => "filtered".to_string(),
+                             cynetmapper_outputs::PortState::OpenFiltered => "open|filtered".to_string(),
+                             cynetmapper_outputs::PortState::ClosedFiltered => "closed|filtered".to_string(),
+                             cynetmapper_outputs::PortState::Unfiltered => "unfiltered".to_string(),
+                         },
+                        service: port_result.service.as_ref().map(|s| s.name.clone()),
+                        version: None, // TODO: Add version detection
+                        banner: port_result.banner.clone(),
+                        response_time: port_result.response_time,
+                        confidence: Some(1.0),
+                    }
+                }).collect();
+                
+                let gui_host_info = GuiHostInfo {
+                    address: target_str.clone(),
+                    hostname: None, // TODO: Add hostname resolution
+                    state: "up".to_string(),
+                    ports: gui_ports,
+                    os_fingerprint: None, // TODO: Add OS fingerprinting
+                    response_time: open_ports.first().and_then(|p| p.response_time),
+                    last_seen: Some(chrono::Utc::now()),
+                };
+                
+                // Emit the host-discovered event
+                if let Err(e) = window.emit("host-discovered", &gui_host_info) {
+                    tracing::warn!("Failed to emit host-discovered event: {}", e);
+                } else {
+                    tracing::info!("Host discovered: {} with {} open ports", target_str, open_ports.len());
+                }
+                
+                host_results.insert(target_str, host_result);
+            }
         }
         
-        // Create scan results
-        let results = ScanResults::default();
+        // Create comprehensive scan results
+        let end_time = SystemTime::now();
+        let total_hosts = host_results.len();
+        let total_open_ports = host_results.values().map(|h| h.ports.len()).sum::<usize>();
+        
+        let results = cynetmapper_outputs::ScanResults {
+            metadata: cynetmapper_outputs::ScanMetadata {
+                start_time: SystemTime::now() - start_time.elapsed(),
+                end_time: Some(end_time),
+                scanner_version: env!("CARGO_PKG_VERSION").to_string(),
+                command_line: format!("GUI scan: targets={:?}, ports={:?}", config.targets, config.ports),
+                scan_type: format!("{:?}", config.scan_type),
+                targets: config.targets.clone(),
+            },
+            hosts: host_results.into_values().collect(),
+            statistics: cynetmapper_outputs::ScanStatistics {
+                total_hosts: targets.len(),
+                hosts_up: total_hosts,
+                hosts_down: targets.len() - total_hosts,
+                total_ports: completed_scans,
+                open_ports: total_open_ports,
+                closed_ports: completed_scans - total_open_ports,
+                filtered_ports: 0,
+                duration: start_time.elapsed(),
+                packets_sent: completed_scans as u64,
+                packets_received: total_open_ports as u64,
+            },
+        };
         
         // Store results
         self.scan_results.lock().unwrap().insert(scan_id.clone(), results.clone());
+        
+        tracing::info!("Scan completed: {} hosts scanned, {} hosts up, {} open ports found", 
+                      targets.len(), total_hosts, total_open_ports);
         
         // Update final progress
         self.update_scan_progress(&scan_id, |progress| {

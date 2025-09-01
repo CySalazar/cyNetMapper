@@ -5,7 +5,6 @@ import {
   AppConfig,
   ScanConfig,
   ScanResults,
-  UiPreferences,
   AppError,
   GuiEvent,
 } from '../types';
@@ -35,6 +34,10 @@ interface AppState {
     showAdvancedOptions: boolean;
     selectedHost: string | null;
     selectedScan: string | null;
+    theme: string;
+    autoRefreshInterval: number;
+    showNotifications: boolean;
+    soundEnabled: boolean;
   };
   
   // Actions
@@ -56,8 +59,11 @@ interface AppState {
   setSelectedHost: (host: string | null) => void;
   setSelectedScan: (scanId: string | null) => void;
   toggleAdvancedOptions: () => void;
+  updateUi: (updates: Partial<AppState['ui']>) => void;
   addNotification: (notification: any) => void;
   clearNotifications: () => void;
+  clearScanHistory: () => void;
+  setCurrentScan: (scan: ScanResults | null) => void;
   exportData: () => any;
   
   // Helper getters
@@ -124,6 +130,10 @@ export const useAppStore = create<AppState>()(persist(
       showAdvancedOptions: false,
       selectedHost: null,
       selectedScan: null,
+      theme: 'system',
+      autoRefreshInterval: 5000,
+      showNotifications: true,
+      soundEnabled: false,
     },
     
     // Helper getters
@@ -147,7 +157,6 @@ export const useAppStore = create<AppState>()(persist(
     setScanConfig: (config: ScanConfig) => set({ scanConfig: config }),
     
     startScan: (config?: ScanConfig) => {
-      const state = get();
       if (config) {
         set({ scanConfig: config, scanStatus: 'running' });
       }
@@ -170,9 +179,39 @@ export const useAppStore = create<AppState>()(persist(
       toast('Scan resumed');
     },
     
-    addEvent: (event: GuiEvent) => set((state) => ({
-      events: [...state.events, event]
-    })),
+    addEvent: (event: GuiEvent) => {
+    set((state) => ({ events: [...state.events, event] }));
+    
+    // Handle specific event types
+    const state = get();
+    if (event.event_type === 'HostDiscovered' && event.data) {
+      // Update current scan with discovered host
+      if (state.currentScan) {
+        const updatedScan = {
+          ...state.currentScan,
+          hosts: [...(state.currentScan.hosts || []), event.data]
+        };
+        set({ currentScan: updatedScan });
+      }
+    } else if (event.event_type === 'ScanCompleted' && event.data) {
+      // Mark scan as completed and update final results
+      set({ 
+        scanStatus: 'completed',
+        currentScan: event.data.results || state.currentScan
+      });
+    } else if (event.event_type === 'Error') {
+      // Add error to error list
+      const error: AppError = {
+        code: event.data?.code || 'SCAN_ERROR',
+        message: event.data?.error || event.data?.message || 'Unknown error',
+        details: event.data?.details,
+        timestamp: new Date().toISOString()
+      };
+      set((state) => ({
+        errors: [...state.errors, error]
+      }));
+    }
+  },
     
     updateScanProgress: (progress: number) => {
       set({ scanProgress: progress });
@@ -222,6 +261,14 @@ export const useAppStore = create<AppState>()(persist(
       ui: { ...state.ui, showAdvancedOptions: !state.ui.showAdvancedOptions }
     })),
     
+    updateUi: (updates: Partial<AppState['ui']>) => set((state) => ({
+      ui: { ...state.ui, ...updates }
+    })),
+
+    clearScanHistory: () => set({ scanHistory: [] }),
+
+    setCurrentScan: (scan: ScanResults | null) => set({ currentScan: scan }),
+
     exportData: () => {
       const state = get();
       return {

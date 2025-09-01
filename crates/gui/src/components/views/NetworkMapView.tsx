@@ -2,11 +2,11 @@ import { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../../stores/appStore';
 import {
   MagnifyingGlassIcon,
-  AdjustmentsHorizontalIcon,
+  // AdjustmentsHorizontalIcon,
   ArrowsPointingOutIcon,
   ArrowsPointingInIcon,
 } from '@heroicons/react/24/outline';
-import { HostInfo } from '../../types';
+// import { HostInfo } from '../../types';
 
 interface NetworkNode {
   id: string;
@@ -25,7 +25,7 @@ interface NetworkEdge {
 }
 
 export function NetworkMapView() {
-  const { scanResults } = useAppStore();
+  const { currentScan } = useAppStore();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [nodes, setNodes] = useState<NetworkNode[]>([]);
   const [edges, setEdges] = useState<NetworkEdge[]>([]);
@@ -37,14 +37,14 @@ export function NetworkMapView() {
   
   // Convert scan results to network topology
   useEffect(() => {
-    if (!scanResults?.hosts) {
+    if (!currentScan?.hosts) {
       setNodes([]);
       setEdges([]);
       return;
     }
     
-    const networkNodes: NetworkNode[] = scanResults.hosts.map((host: any, index: number) => {
-      const angle = (index / scanResults.hosts.length) * 2 * Math.PI;
+    const networkNodes: NetworkNode[] = currentScan.hosts.map((host: any, index: number) => {
+      const angle = (index / currentScan.hosts.length) * 2 * Math.PI;
       const radius = 200;
       
       return {
@@ -86,7 +86,7 @@ export function NetworkMapView() {
     
     setNodes(networkNodes);
     setEdges(networkEdges);
-  }, [scanResults]);
+  }, [currentScan]);
   
   // Canvas drawing
   useEffect(() => {
@@ -217,8 +217,8 @@ export function NetworkMapView() {
   };
   
   const selectedNodeData = selectedNode ? nodes.find(n => n.id === selectedNode) : null;
-  const selectedHostData = selectedNode && scanResults?.hosts ? 
-    scanResults.hosts.find((h: any) => h.ip === selectedNode) : null;
+  const selectedHostData = selectedNode && currentScan?.hosts ? 
+    currentScan.hosts.find((h: any) => h.ip === selectedNode) : null;
   
   return (
     <div className="p-6 h-full flex flex-col">
@@ -356,9 +356,9 @@ export function NetworkMapView() {
                   <p className="mt-1 text-sm text-gray-900 dark:text-white">
                     {selectedHostData.os_fingerprint.os_family}
                   </p>
-                  {selectedHostData.os_fingerprint.accuracy && (
+                  {selectedHostData.os_fingerprint.confidence && (
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Accuracy: {selectedHostData.os_fingerprint.accuracy}%
+                      Confidence: {selectedHostData.os_fingerprint.confidence}%
                     </p>
                   )}
                 </div>
