@@ -10,17 +10,60 @@ use cynetmapper_core::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{SocketAddr, TcpStream};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream as AsyncTcpStream;
 use tokio::time::timeout;
 use tracing::{debug, trace, warn};
+
+/// TCP option types
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TcpOption {
+    /// Maximum Segment Size
+    Mss(u16),
+    /// Window Scale
+    WindowScale(u8),
+    /// Selective Acknowledgment Permitted
+    SackPermitted,
+    /// Timestamp
+    Timestamp(u32, u32),
+    /// No Operation
+    Nop,
+    /// End of Option List
+    Eol,
+    /// Custom option
+    Custom { kind: u8, data: Vec<u8> },
+}
+
+/// TCP scan types compatible with nmap
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TcpScanType {
+    /// TCP Connect scan (-sT)
+    Connect,
+    /// SYN stealth scan (-sS)
+    SynStealth,
+    /// FIN scan (-sF)
+    Fin,
+    /// NULL scan (-sN)
+    Null,
+    /// Xmas scan (-sX)
+    Xmas,
+    /// ACK scan (-sA)
+    Ack,
+    /// Window scan (-sW)
+    Window,
+    /// Maimon scan (-sM)
+    Maimon,
+}
 
 /// TCP probe configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TcpProbeOptions {
     /// Base probe options
     pub base: ProbeOptions,
+    
+    /// TCP scan type
+    pub scan_type: TcpScanType,
     
     /// Connection timeout
     pub connect_timeout: Duration,
@@ -42,12 +85,31 @@ pub struct TcpProbeOptions {
     
     /// MSS (Maximum Segment Size)
     pub mss: Option<u16>,
+    
+    /// Source port for scanning
+    pub source_port: Option<u16>,
+    
+    /// Fragment packets (for evasion)
+    pub fragment: bool,
+    
+    /// Decoy addresses for scan obfuscation
+    pub decoys: Vec<IpAddr>,
+    
+    /// Spoof source address
+    pub spoof_source: Option<IpAddr>,
+    
+    /// Data payload to send
+    pub data_payload: Option<Vec<u8>>,
+    
+    /// TCP options to include
+    pub tcp_options: Vec<TcpOption>,
 }
 
 impl Default for TcpProbeOptions {
     fn default() -> Self {
         Self {
             base: ProbeOptions::default(),
+            scan_type: TcpScanType::Connect,
             connect_timeout: Duration::from_secs(5),
             read_timeout: Duration::from_secs(3),
             grab_banner: true,
@@ -55,7 +117,67 @@ impl Default for TcpProbeOptions {
             tcp_flags: None,
             window_size: None,
             mss: None,
+            source_port: None,
+            fragment: false,
+            decoys: Vec::new(),
+            spoof_source: None,
+            data_payload: None,
+            tcp_options: Vec::new(),
         }
+    }
+}
+
+impl TcpScanType {
+    /// Get TCP flags for this scan type
+    pub fn tcp_flags(&self) -> u8 {
+        match self {
+            TcpScanType::Connect => 0x02, // SYN
+            TcpScanType::SynStealth => 0x02, // SYN
+            TcpScanType::Fin => 0x01, // FIN
+            TcpScanType::Null => 0x00, // No flags
+            TcpScanType::Xmas => 0x29, // FIN + PSH + URG
+            TcpScanType::Ack => 0x10, // ACK
+            TcpScanType::Window => 0x10, // ACK
+            TcpScanType::Maimon => 0x11, // FIN + ACK
+        }
+    }
+    
+    /// Check if this scan type requires raw sockets
+    pub fn requires_raw_sockets(&self) -> bool {
+        !matches!(self, TcpScanType::Connect)
+    }
+    
+    /// Get scan description
+    pub fn description(&self) -> &'static str {
+        match self {
+            TcpScanType::Connect => "TCP Connect scan",
+            TcpScanType::SynStealth => "SYN stealth scan",
+            TcpScanType::Fin => "FIN scan",
+            TcpScanType::Null => "NULL scan",
+            TcpScanType::Xmas => "Xmas scan",
+            TcpScanType::Ack => "ACK scan",
+            TcpScanType::Window => "Window scan",
+            TcpScanType::Maimon => "Maimon scan",
+        }
+    }
+    
+    /// Get TCP flags for advanced scan types
+    pub fn get_tcp_flags(&self) -> u8 {
+        match self {
+            TcpScanType::Connect => 0x02, // SYN
+            TcpScanType::SynStealth => 0x02, // SYN
+            TcpScanType::Fin => 0x01, // FIN
+            TcpScanType::Null => 0x00, // No flags
+            TcpScanType::Xmas => 0x29, // FIN + PSH + URG
+            TcpScanType::Ack => 0x10, // ACK
+            TcpScanType::Window => 0x10, // ACK
+            TcpScanType::Maimon => 0x11, // FIN + ACK
+        }
+    }
+    
+    /// Check if scan type supports stealth mode
+    pub fn is_stealth(&self) -> bool {
+        !matches!(self, TcpScanType::Connect)
     }
 }
 
@@ -149,10 +271,31 @@ impl TcpProbe {
         let opts = options.unwrap_or_else(|| self.default_options.clone());
         let start_time = Instant::now();
         
+        // Route to appropriate scan method based on scan type
+        match opts.scan_type {
+            TcpScanType::Connect => self.tcp_connect_scan(target, &opts).await,
+            TcpScanType::SynStealth => self.syn_stealth_scan(target, &opts).await,
+            TcpScanType::Fin => self.fin_scan(target, &opts).await,
+            TcpScanType::Null => self.null_scan(target, &opts).await,
+            TcpScanType::Xmas => self.xmas_scan(target, &opts).await,
+            TcpScanType::Ack => self.ack_scan(target, &opts).await,
+            TcpScanType::Window => self.window_scan(target, &opts).await,
+            TcpScanType::Maimon => self.maimon_scan(target, &opts).await,
+        }
+    }
+    
+    /// TCP Connect scan implementation
+    async fn tcp_connect_scan(
+        &mut self,
+        target: SocketAddr,
+        options: &TcpProbeOptions,
+    ) -> Result<TcpProbeResult> {
+        let start_time = Instant::now();
+        
         debug!("TCP probing {}:{}", target.ip(), target.port());
         
         // Perform TCP connect
-        let connect_result = self.tcp_connect(target, &opts).await;
+        let connect_result = self.tcp_connect(target, options).await;
         
         let mut result = match connect_result {
             Ok((stream, connect_time)) => {
@@ -168,8 +311,8 @@ impl TcpProbe {
                 ).with_connect_time(connect_time);
                 
                 // Grab banner if enabled
-                if opts.grab_banner {
-                    if let Ok((banner, banner_time)) = self.grab_banner(stream, &opts).await {
+                if options.grab_banner {
+                    if let Ok((banner, banner_time)) = self.grab_banner(stream, options).await {
                         tcp_result = tcp_result.with_banner(banner, banner_time);
                     }
                 }
@@ -200,6 +343,108 @@ impl TcpProbe {
         // Update statistics
         self.stats.update(&result.base);
         
+        Ok(result)
+    }
+    
+    /// SYN stealth scan implementation
+    async fn syn_stealth_scan(
+        &mut self,
+        target: SocketAddr,
+        options: &TcpProbeOptions,
+    ) -> Result<TcpProbeResult> {
+        let start_time = Instant::now();
+        
+        // For now, fall back to connect scan if raw sockets not available
+        // TODO: Implement raw socket SYN scan
+        warn!("SYN stealth scan not yet implemented, falling back to connect scan");
+        self.tcp_connect_scan(target, options).await
+    }
+    
+    /// FIN scan implementation
+    async fn fin_scan(
+        &mut self,
+        target: SocketAddr,
+        options: &TcpProbeOptions,
+    ) -> Result<TcpProbeResult> {
+        self.raw_tcp_scan(target, options, TcpScanType::Fin).await
+    }
+    
+    /// NULL scan implementation
+    async fn null_scan(
+        &mut self,
+        target: SocketAddr,
+        options: &TcpProbeOptions,
+    ) -> Result<TcpProbeResult> {
+        self.raw_tcp_scan(target, options, TcpScanType::Null).await
+    }
+    
+    /// Xmas scan implementation
+    async fn xmas_scan(
+        &mut self,
+        target: SocketAddr,
+        options: &TcpProbeOptions,
+    ) -> Result<TcpProbeResult> {
+        self.raw_tcp_scan(target, options, TcpScanType::Xmas).await
+    }
+    
+    /// ACK scan implementation
+    async fn ack_scan(
+        &mut self,
+        target: SocketAddr,
+        options: &TcpProbeOptions,
+    ) -> Result<TcpProbeResult> {
+        self.raw_tcp_scan(target, options, TcpScanType::Ack).await
+    }
+    
+    /// Window scan implementation
+    async fn window_scan(
+        &mut self,
+        target: SocketAddr,
+        options: &TcpProbeOptions,
+    ) -> Result<TcpProbeResult> {
+        self.raw_tcp_scan(target, options, TcpScanType::Window).await
+    }
+    
+    /// Maimon scan implementation
+    async fn maimon_scan(
+        &mut self,
+        target: SocketAddr,
+        options: &TcpProbeOptions,
+    ) -> Result<TcpProbeResult> {
+        self.raw_tcp_scan(target, options, TcpScanType::Maimon).await
+    }
+    
+    /// Generic raw TCP scan implementation
+    async fn raw_tcp_scan(
+        &mut self,
+        target: SocketAddr,
+        options: &TcpProbeOptions,
+        scan_type: TcpScanType,
+    ) -> Result<TcpProbeResult> {
+        let start_time = Instant::now();
+        self.stats.increment_probes();
+        
+        // TODO: Implement actual raw socket scanning
+        // For now, return a placeholder result
+        warn!("Raw TCP scan ({}) not yet implemented for {}", scan_type.description(), target);
+        
+        let mut metadata = HashMap::new();
+        metadata.insert("scan_type".to_string(), scan_type.description().to_string());
+        metadata.insert("tcp_flags".to_string(), format!("0x{:02x}", scan_type.tcp_flags()));
+        metadata.insert("total_probe_time".to_string(), start_time.elapsed().as_millis().to_string());
+        
+        let result = TcpProbeResult::from_base(ProbeResult {
+             target,
+             protocol: Protocol::Tcp,
+             state: PortState::Filtered, // Default for raw scans until implemented
+             response_time: Some(start_time.elapsed()),
+             timestamp: SystemTime::now(),
+             error: None,
+             metadata,
+             raw_response: None,
+         });
+        
+        self.stats.increment_failed(); // Mark as failed until implemented
         Ok(result)
     }
     
@@ -509,15 +754,15 @@ mod tests {
         let probe = TcpProbe::new(&config).unwrap();
         
         // Valid targets
-        let valid_target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 80);
+        let valid_target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 80);
         assert!(probe.is_valid_target(valid_target));
         
         // Invalid port
-        let invalid_port = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 0);
+        let invalid_port = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 0);
         assert!(!probe.is_valid_target(invalid_port));
         
         // Invalid IP (loopback)
-        let invalid_ip = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80);
+        let invalid_ip = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 80);
         assert!(!probe.is_valid_target(invalid_ip));
     }
 
@@ -527,7 +772,7 @@ mod tests {
         let mut probe = TcpProbe::new(&config).unwrap();
         
         // Test against a likely closed port on localhost
-        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9999);
+        let target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9999);
         let options = TcpProbeBuilder::new()
             .connect_timeout(Duration::from_millis(100))
             .grab_banner(false)
@@ -556,7 +801,7 @@ mod tests {
 
     #[test]
     fn test_tcp_probe_result() {
-        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
+        let target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
         let base_result = ProbeResult::success(
             target,
             Protocol::Tcp,
@@ -582,8 +827,8 @@ mod tests {
         let mut probe = TcpProbe::new(&config).unwrap();
         
         let targets = vec![
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9998),
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9999),
+            SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9998),
+            SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9999),
         ];
         
         let options = TcpProbeBuilder::new()

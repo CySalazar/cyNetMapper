@@ -245,11 +245,31 @@ impl ServiceDetector {
         self.add_signature("http", Protocol::Tcp, 0,
             r"Server:\s*([^\r\n/]+)(?:/([^\r\n\s]+))?",
             Some(1), Some(2), 0.8);
+            
+        self.add_signature("http", Protocol::Tcp, 0,
+            r"Apache/([0-9.]+)",
+            Some(1), Some(1), 0.9);
+            
+        self.add_signature("http", Protocol::Tcp, 0,
+            r"nginx/([0-9.]+)",
+            Some(1), Some(1), 0.9);
+            
+        self.add_signature("http", Protocol::Tcp, 0,
+            r"Microsoft-IIS/([0-9.]+)",
+            Some(1), Some(1), 0.9);
         
         // SSH signatures
         self.add_signature("ssh", Protocol::Tcp, 22,
             r"SSH-([0-9.]+)-([^\r\n\s]+)(?:\s+([^\r\n]+))?",
             Some(2), Some(1), 0.9);
+            
+        self.add_signature("ssh", Protocol::Tcp, 22,
+            r"SSH-2\.0-OpenSSH_([0-9.]+[^\s]*)",
+            Some(1), Some(1), 0.95);
+            
+        self.add_signature("ssh", Protocol::Tcp, 22,
+            r"SSH-2\.0-libssh_([0-9.]+)",
+            Some(1), Some(1), 0.9);
         
         // FTP signatures
         self.add_signature("ftp", Protocol::Tcp, 21,
@@ -258,7 +278,15 @@ impl ServiceDetector {
         
         self.add_signature("ftp", Protocol::Tcp, 21,
             r"220[^\r\n]*vsftpd\s+([0-9.]+)",
-            None, Some(1), 0.9);
+            Some(1), Some(1), 0.9);
+            
+        self.add_signature("ftp", Protocol::Tcp, 21,
+            r"220[^\r\n]*ProFTPD\s+([0-9.]+)",
+            Some(1), Some(1), 0.9);
+            
+        self.add_signature("ftp", Protocol::Tcp, 21,
+            r"220[^\r\n]*Pure-FTPd\s+([0-9.]+)",
+            Some(1), Some(1), 0.9);
         
         // SMTP signatures
         self.add_signature("smtp", Protocol::Tcp, 25,
@@ -268,11 +296,23 @@ impl ServiceDetector {
         self.add_signature("smtp", Protocol::Tcp, 25,
             r"220[^\r\n]*Postfix",
             Some(1), None, 0.8);
+            
+        self.add_signature("smtp", Protocol::Tcp, 25,
+            r"220[^\r\n]*Sendmail\s+([0-9.]+)",
+            Some(1), Some(1), 0.9);
+            
+        self.add_signature("smtp", Protocol::Tcp, 25,
+            r"220[^\r\n]*Exim\s+([0-9.]+)",
+            Some(1), Some(1), 0.9);
         
         // DNS signatures
         self.add_signature("dns", Protocol::Udp, 53,
             r"version\.bind.*?([^\r\n]+)",
             None, Some(1), 0.8);
+            
+        self.add_signature("dns", Protocol::Tcp, 53,
+            r"version\.bind.*?BIND\s+([0-9.]+)",
+            Some(1), Some(1), 0.9);
         
         // SNMP signatures
         self.add_signature("snmp", Protocol::Udp, 161,
@@ -283,21 +323,41 @@ impl ServiceDetector {
         self.add_signature("ssl", Protocol::Tcp, 443,
             r"\x16\x03[\x00-\x03]",
             None, None, 0.8);
+            
+        self.add_signature("https", Protocol::Tcp, 443,
+            r"HTTP/1\.[01]\s+\d+.*?Server:\s*([^\r\n/]+)(?:/([^\r\n\s]+))?",
+            Some(1), Some(2), 0.8);
         
         // MySQL signatures
         self.add_signature("mysql", Protocol::Tcp, 3306,
             r"\x00\x00\x00\x0a([0-9.]+[^\x00]*)",
             None, Some(1), 0.9);
+            
+        self.add_signature("mysql", Protocol::Tcp, 3306,
+            r"mysql_native_password",
+            None, None, 0.8);
         
         // PostgreSQL signatures
         self.add_signature("postgresql", Protocol::Tcp, 5432,
             r"FATAL.*?database.*?does not exist",
+            None, None, 0.8);
+            
+        self.add_signature("postgresql", Protocol::Tcp, 5432,
+            r"SCRAM-SHA-256",
             None, None, 0.8);
         
         // Redis signatures
         self.add_signature("redis", Protocol::Tcp, 6379,
             r"-NOAUTH Authentication required",
             None, None, 0.9);
+            
+        self.add_signature("redis", Protocol::Tcp, 6379,
+            r"\+PONG",
+            None, None, 0.8);
+            
+        self.add_signature("redis", Protocol::Tcp, 6379,
+            r"redis_version:([0-9.]+)",
+            None, Some(1), 0.9);
         
         // Telnet signatures
         self.add_signature("telnet", Protocol::Tcp, 23,
@@ -308,11 +368,19 @@ impl ServiceDetector {
         self.add_signature("pop3", Protocol::Tcp, 110,
             r"\+OK.*?([^\r\n/]+)(?:/([^\r\n\s]+))?",
             Some(1), Some(2), 0.8);
+            
+        self.add_signature("pop3", Protocol::Tcp, 110,
+            r"\+OK.*?Dovecot\s+([^\s]+)",
+            Some(1), Some(1), 0.9);
         
         // IMAP signatures
         self.add_signature("imap", Protocol::Tcp, 143,
             r"\* OK.*?([^\r\n/]+)(?:/([^\r\n\s]+))?",
             Some(1), Some(2), 0.8);
+            
+        self.add_signature("imap", Protocol::Tcp, 143,
+            r"\* OK.*?Dovecot\s+([^\s]+)",
+            Some(1), Some(1), 0.9);
         
         // LDAP signatures
         self.add_signature("ldap", Protocol::Tcp, 389,
@@ -323,11 +391,134 @@ impl ServiceDetector {
         self.add_signature("sip", Protocol::Udp, 5060,
             r"SIP/2\.0\s+(\d+)\s+([^\r\n]+)",
             None, None, 0.8);
+            
+        self.add_signature("sip", Protocol::Tcp, 5060,
+            r"SIP/2\.0\s+(\d+)\s+([^\r\n]+)",
+            None, None, 0.8);
         
         // NTP signatures
         self.add_signature("ntp", Protocol::Udp, 123,
             r"\x1c[\x01-\x04]",
             None, None, 0.7);
+            
+        // MongoDB signatures
+        self.add_signature("mongodb", Protocol::Tcp, 27017,
+            r"MongoDB\s+([0-9.]+)",
+            Some(1), Some(1), 0.9);
+            
+        // Elasticsearch signatures
+         self.add_signature("elasticsearch", Protocol::Tcp, 9200,
+             r#""version"\s*:\s*\{[^}]*"number"\s*:\s*"([^"]+)""#,
+             None, Some(1), 0.9);
+            
+        // RDP signatures
+        self.add_signature("rdp", Protocol::Tcp, 3389,
+            r"\x03\x00\x00\x13\x0e\xd0",
+            None, None, 0.8);
+            
+        // VNC signatures
+        self.add_signature("vnc", Protocol::Tcp, 5900,
+            r"RFB\s+([0-9.]+)",
+            None, Some(1), 0.9);
+            
+        // RTSP signatures
+        self.add_signature("rtsp", Protocol::Tcp, 554,
+            r"RTSP/1\.0\s+(\d+)",
+            None, None, 0.8);
+            
+        // Memcached signatures
+        self.add_signature("memcached", Protocol::Tcp, 11211,
+            r"VERSION\s+([0-9.]+)",
+            None, Some(1), 0.9);
+            
+        // Docker API signatures
+        self.add_signature("docker", Protocol::Tcp, 2375,
+            r"Docker/([0-9.]+)",
+            Some(1), Some(1), 0.9);
+            
+        // Kubernetes API signatures
+         self.add_signature("kubernetes", Protocol::Tcp, 6443,
+             r#""gitVersion":"v([0-9.]+[^"]*)""#,
+             None, Some(1), 0.9);
+            
+        // MQTT signatures
+        self.add_signature("mqtt", Protocol::Tcp, 1883,
+            r"\x10[\x02-\x04]\x00\x00",
+            None, None, 0.8);
+            
+        // CoAP signatures
+        self.add_signature("coap", Protocol::Udp, 5683,
+            r"\x40[\x00-\x03]",
+            None, None, 0.7);
+            
+        // XMPP signatures
+        self.add_signature("xmpp", Protocol::Tcp, 5222,
+            r"<stream:stream[^>]*xmlns:stream",
+            None, None, 0.8);
+            
+        // IRC signatures
+        self.add_signature("irc", Protocol::Tcp, 6667,
+            r":([^\s]+)\s+001\s+",
+            Some(1), None, 0.8);
+            
+        // NNTP signatures
+        self.add_signature("nntp", Protocol::Tcp, 119,
+            r"200\s+([^\r\n]+)\s+NNTP",
+            Some(1), None, 0.8);
+            
+        // Rsync signatures
+        self.add_signature("rsync", Protocol::Tcp, 873,
+            r"@RSYNCD:\s*([0-9.]+)",
+            None, Some(1), 0.9);
+            
+        // Git signatures
+        self.add_signature("git", Protocol::Tcp, 9418,
+            r"git-upload-pack",
+            None, None, 0.8);
+            
+        // Subversion signatures
+        self.add_signature("svn", Protocol::Tcp, 3690,
+            r"\(\s*success\s*\(\s*2\s+2\s+",
+            None, None, 0.8);
+            
+        // TFTP signatures
+        self.add_signature("tftp", Protocol::Udp, 69,
+            r"\x00[\x03-\x05]",
+            None, None, 0.7);
+            
+        // Syslog signatures
+        self.add_signature("syslog", Protocol::Udp, 514,
+            r"<\d+>[A-Za-z]{3}\s+\d+\s+\d+:\d+:\d+",
+            None, None, 0.7);
+            
+        // DHCP signatures
+        self.add_signature("dhcp", Protocol::Udp, 67,
+            r"\x01\x01\x06\x00",
+            None, None, 0.7);
+            
+        // NetBIOS signatures
+        self.add_signature("netbios-ns", Protocol::Udp, 137,
+            r"\x00\x00\x85\x00",
+            None, None, 0.7);
+            
+        // SMB signatures
+        self.add_signature("smb", Protocol::Tcp, 445,
+            r"\xffSMB",
+            None, None, 0.8);
+            
+        self.add_signature("smb", Protocol::Tcp, 139,
+            r"\xffSMB",
+            None, None, 0.8);
+            
+        // MSSQL signatures
+        self.add_signature("mssql", Protocol::Tcp, 1433,
+            r"Microsoft SQL Server\s+([0-9.]+)",
+            Some(1), Some(1), 0.9);
+            
+        // Oracle signatures
+        self.add_signature("oracle", Protocol::Tcp, 1521,
+            r"\(DESCRIPTION=\(TMP=\)\(VSNNUM=([0-9]+)\)",
+            None, Some(1), 0.8);
     }
     
     /// Add a service signature
@@ -360,25 +551,58 @@ impl ServiceDetector {
     fn load_port_mappings(&mut self) {
         // TCP services
         let tcp_services = [
+            (20, "ftp-data"),
             (21, "ftp"),
             (22, "ssh"),
             (23, "telnet"),
             (25, "smtp"),
             (53, "dns"),
+            (79, "finger"),
             (80, "http"),
+            (88, "kerberos"),
             (110, "pop3"),
+            (113, "ident"),
+            (119, "nntp"),
+            (135, "msrpc"),
+            (139, "netbios-ssn"),
             (143, "imap"),
+            (389, "ldap"),
             (443, "https"),
+            (445, "smb"),
+            (465, "smtps"),
+            (514, "rsh"),
+            (515, "printer"),
+            (554, "rtsp"),
+            (587, "submission"),
+            (636, "ldaps"),
+            (873, "rsync"),
             (993, "imaps"),
             (995, "pop3s"),
+            (1080, "socks"),
             (1433, "mssql"),
+            (1521, "oracle"),
+            (1723, "pptp"),
+            (1883, "mqtt"),
+            (2049, "nfs"),
+            (2375, "docker"),
+            (2376, "docker-ssl"),
             (3306, "mysql"),
             (3389, "rdp"),
+            (3690, "svn"),
+            (5060, "sip"),
+            (5222, "xmpp-client"),
+            (5269, "xmpp-server"),
             (5432, "postgresql"),
             (5900, "vnc"),
             (6379, "redis"),
+            (6443, "kubernetes"),
+            (6667, "irc"),
             (8080, "http-proxy"),
             (8443, "https-alt"),
+            (9200, "elasticsearch"),
+            (9418, "git"),
+            (11211, "memcached"),
+            (27017, "mongodb"),
         ];
         
         for (port, service) in tcp_services {
@@ -397,10 +621,18 @@ impl ServiceDetector {
             (138, "netbios-dgm"),
             (161, "snmp"),
             (162, "snmp-trap"),
+            (500, "isakmp"),
             (514, "syslog"),
             (520, "rip"),
+            (1194, "openvpn"),
+            (1701, "l2tp"),
+            (1812, "radius"),
+            (1813, "radius-acct"),
             (1900, "upnp"),
+            (4500, "ipsec-nat-t"),
             (5060, "sip"),
+            (5353, "mdns"),
+            (5683, "coap"),
         ];
         
         for (port, service) in udp_services {
@@ -520,7 +752,7 @@ mod tests {
         let config = Config::default();
         let detector = ServiceDetector::new(&config).unwrap();
         
-        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
+        let target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
         let banner = "HTTP/1.1 200 OK\r\nServer: Apache/2.4.41\r\n";
         
         let service = detector.detect_service(target, Protocol::Tcp, Some(banner), PortState::Open);
@@ -537,7 +769,7 @@ mod tests {
         let config = Config::default();
         let detector = ServiceDetector::new(&config).unwrap();
         
-        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 22);
+        let target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 22);
         let banner = "SSH-2.0-OpenSSH_8.3";
         
         let service = detector.detect_service(target, Protocol::Tcp, Some(banner), PortState::Open);
@@ -555,7 +787,7 @@ mod tests {
         let config = Config::default();
         let detector = ServiceDetector::new(&config).unwrap();
         
-        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
+        let target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
         
         let service = detector.detect_service(target, Protocol::Tcp, None, PortState::Open);
         assert!(service.is_some());
@@ -571,7 +803,7 @@ mod tests {
         let config = Config::default();
         let detector = ServiceDetector::new(&config).unwrap();
         
-        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
+        let target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
         
         let service = detector.detect_service(target, Protocol::Tcp, None, PortState::Closed);
         assert!(service.is_none());

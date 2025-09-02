@@ -243,7 +243,7 @@ impl CliScanner {
             sleep(delay).await;
         }
         
-        let result = match probe_manager.scan_port_comprehensive(target, port, protocol).await {
+        let result = match probe_manager.scan_port(target, port, protocol).await {
             Ok(mut result) => {
                 // Update statistics based on result
                 match result.state {

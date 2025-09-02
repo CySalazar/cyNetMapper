@@ -576,13 +576,14 @@ impl OsFingerprinter {
     
     /// Load OS signatures
     fn load_signatures(&mut self) {
-        // Windows signatures
+        // Windows 10/11 signatures
         let mut windows_tcp = TcpFingerprint::new();
         windows_tcp.initial_ttl = Some(128);
         windows_tcp.window_size = Some(65535);
         windows_tcp.mss = Some(1460);
         windows_tcp.sack_permitted = true;
         windows_tcp.timestamp = false;
+        windows_tcp.window_scale = Some(8);
         
         self.signatures.push(OsSignature {
             os_family: "Windows".to_string(),
@@ -595,7 +596,46 @@ impl OsFingerprinter {
             weight: 1.0,
         });
         
-        // Linux signatures
+        // Windows Server 2019/2022
+        let mut windows_server_tcp = TcpFingerprint::new();
+        windows_server_tcp.initial_ttl = Some(128);
+        windows_server_tcp.window_size = Some(8192);
+        windows_server_tcp.mss = Some(1460);
+        windows_server_tcp.sack_permitted = true;
+        windows_server_tcp.timestamp = false;
+        windows_server_tcp.window_scale = Some(8);
+        
+        self.signatures.push(OsSignature {
+            os_family: "Windows".to_string(),
+            os_version: Some("Server 2019/2022".to_string()),
+            device_type: Some("Server".to_string()),
+            tcp_fingerprint: Some(windows_server_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec!["Microsoft-IIS".to_string(), "Microsoft-HTTPAPI".to_string()],
+            ssh_patterns: vec![],
+            weight: 1.1,
+        });
+        
+        // Windows 7/8
+        let mut windows_old_tcp = TcpFingerprint::new();
+        windows_old_tcp.initial_ttl = Some(128);
+        windows_old_tcp.window_size = Some(8192);
+        windows_old_tcp.mss = Some(1460);
+        windows_old_tcp.sack_permitted = false;
+        windows_old_tcp.timestamp = false;
+        
+        self.signatures.push(OsSignature {
+            os_family: "Windows".to_string(),
+            os_version: Some("7/8".to_string()),
+            device_type: Some("Desktop".to_string()),
+            tcp_fingerprint: Some(windows_old_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec!["Microsoft-IIS".to_string()],
+            ssh_patterns: vec![],
+            weight: 0.9,
+        });
+        
+        // Linux Ubuntu/Debian
         let mut linux_tcp = TcpFingerprint::new();
         linux_tcp.initial_ttl = Some(64);
         linux_tcp.window_size = Some(29200);
@@ -606,7 +646,7 @@ impl OsFingerprinter {
         
         self.signatures.push(OsSignature {
             os_family: "Linux".to_string(),
-            os_version: None,
+            os_version: Some("Ubuntu/Debian".to_string()),
             device_type: Some("Server".to_string()),
             tcp_fingerprint: Some(linux_tcp),
             icmp_fingerprint: None,
@@ -615,7 +655,47 @@ impl OsFingerprinter {
             weight: 1.0,
         });
         
-        // macOS signatures
+        // Linux CentOS/RHEL
+        let mut centos_tcp = TcpFingerprint::new();
+        centos_tcp.initial_ttl = Some(64);
+        centos_tcp.window_size = Some(14600);
+        centos_tcp.mss = Some(1460);
+        centos_tcp.sack_permitted = true;
+        centos_tcp.timestamp = true;
+        centos_tcp.window_scale = Some(7);
+        
+        self.signatures.push(OsSignature {
+            os_family: "Linux".to_string(),
+            os_version: Some("CentOS/RHEL".to_string()),
+            device_type: Some("Server".to_string()),
+            tcp_fingerprint: Some(centos_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec!["Apache".to_string(), "nginx".to_string()],
+            ssh_patterns: vec!["OpenSSH".to_string()],
+            weight: 1.0,
+        });
+        
+        // Linux Alpine
+        let mut alpine_tcp = TcpFingerprint::new();
+        alpine_tcp.initial_ttl = Some(64);
+        alpine_tcp.window_size = Some(14600);
+        alpine_tcp.mss = Some(1460);
+        alpine_tcp.sack_permitted = true;
+        alpine_tcp.timestamp = true;
+        alpine_tcp.window_scale = Some(6);
+        
+        self.signatures.push(OsSignature {
+            os_family: "Linux".to_string(),
+            os_version: Some("Alpine".to_string()),
+            device_type: Some("Container".to_string()),
+            tcp_fingerprint: Some(alpine_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec!["nginx".to_string()],
+            ssh_patterns: vec!["OpenSSH".to_string(), "Dropbear".to_string()],
+            weight: 1.0,
+        });
+        
+        // macOS Monterey/Ventura/Sonoma
         let mut macos_tcp = TcpFingerprint::new();
         macos_tcp.initial_ttl = Some(64);
         macos_tcp.window_size = Some(65535);
@@ -626,7 +706,7 @@ impl OsFingerprinter {
         
         self.signatures.push(OsSignature {
             os_family: "macOS".to_string(),
-            os_version: None,
+            os_version: Some("12+".to_string()),
             device_type: Some("Desktop".to_string()),
             tcp_fingerprint: Some(macos_tcp),
             icmp_fingerprint: None,
@@ -635,13 +715,34 @@ impl OsFingerprinter {
             weight: 1.0,
         });
         
-        // FreeBSD signatures
+        // macOS Big Sur/Catalina
+        let mut macos_old_tcp = TcpFingerprint::new();
+        macos_old_tcp.initial_ttl = Some(64);
+        macos_old_tcp.window_size = Some(65535);
+        macos_old_tcp.mss = Some(1460);
+        macos_old_tcp.sack_permitted = true;
+        macos_old_tcp.timestamp = true;
+        macos_old_tcp.window_scale = Some(5);
+        
+        self.signatures.push(OsSignature {
+            os_family: "macOS".to_string(),
+            os_version: Some("10.15-11".to_string()),
+            device_type: Some("Desktop".to_string()),
+            tcp_fingerprint: Some(macos_old_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec![],
+            ssh_patterns: vec!["OpenSSH".to_string()],
+            weight: 0.9,
+        });
+        
+        // FreeBSD
         let mut freebsd_tcp = TcpFingerprint::new();
         freebsd_tcp.initial_ttl = Some(64);
         freebsd_tcp.window_size = Some(65535);
         freebsd_tcp.mss = Some(1460);
         freebsd_tcp.sack_permitted = true;
         freebsd_tcp.timestamp = true;
+        freebsd_tcp.window_scale = Some(6);
         
         self.signatures.push(OsSignature {
             os_family: "FreeBSD".to_string(),
@@ -649,12 +750,91 @@ impl OsFingerprinter {
             device_type: Some("Server".to_string()),
             tcp_fingerprint: Some(freebsd_tcp),
             icmp_fingerprint: None,
+            http_patterns: vec!["Apache".to_string(), "nginx".to_string()],
+            ssh_patterns: vec!["OpenSSH".to_string()],
+            weight: 1.0,
+        });
+        
+        // OpenBSD
+        let mut openbsd_tcp = TcpFingerprint::new();
+        openbsd_tcp.initial_ttl = Some(64);
+        openbsd_tcp.window_size = Some(16384);
+        openbsd_tcp.mss = Some(1460);
+        openbsd_tcp.sack_permitted = false;
+        openbsd_tcp.timestamp = true;
+        openbsd_tcp.window_scale = Some(3);
+        
+        self.signatures.push(OsSignature {
+            os_family: "OpenBSD".to_string(),
+            os_version: None,
+            device_type: Some("Server".to_string()),
+            tcp_fingerprint: Some(openbsd_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec!["OpenBSD httpd".to_string()],
+            ssh_patterns: vec!["OpenSSH".to_string()],
+            weight: 1.1,
+        });
+        
+        // NetBSD
+        let mut netbsd_tcp = TcpFingerprint::new();
+        netbsd_tcp.initial_ttl = Some(64);
+        netbsd_tcp.window_size = Some(32768);
+        netbsd_tcp.mss = Some(1460);
+        netbsd_tcp.sack_permitted = true;
+        netbsd_tcp.timestamp = true;
+        netbsd_tcp.window_scale = Some(4);
+        
+        self.signatures.push(OsSignature {
+            os_family: "NetBSD".to_string(),
+            os_version: None,
+            device_type: Some("Server".to_string()),
+            tcp_fingerprint: Some(netbsd_tcp),
+            icmp_fingerprint: None,
             http_patterns: vec![],
             ssh_patterns: vec!["OpenSSH".to_string()],
             weight: 1.0,
         });
         
-        // Cisco IOS signatures
+        // Solaris
+        let mut solaris_tcp = TcpFingerprint::new();
+        solaris_tcp.initial_ttl = Some(255);
+        solaris_tcp.window_size = Some(24820);
+        solaris_tcp.mss = Some(1460);
+        solaris_tcp.sack_permitted = true;
+        solaris_tcp.timestamp = false;
+        solaris_tcp.window_scale = Some(0);
+        
+        self.signatures.push(OsSignature {
+            os_family: "Solaris".to_string(),
+            os_version: None,
+            device_type: Some("Server".to_string()),
+            tcp_fingerprint: Some(solaris_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec!["Apache".to_string()],
+            ssh_patterns: vec!["Sun_SSH".to_string(), "OpenSSH".to_string()],
+            weight: 1.1,
+        });
+        
+        // AIX
+        let mut aix_tcp = TcpFingerprint::new();
+        aix_tcp.initial_ttl = Some(255);
+        aix_tcp.window_size = Some(16384);
+        aix_tcp.mss = Some(1460);
+        aix_tcp.sack_permitted = false;
+        aix_tcp.timestamp = false;
+        
+        self.signatures.push(OsSignature {
+            os_family: "AIX".to_string(),
+            os_version: None,
+            device_type: Some("Server".to_string()),
+            tcp_fingerprint: Some(aix_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec!["IBM_HTTP_Server".to_string()],
+            ssh_patterns: vec!["OpenSSH".to_string()],
+            weight: 1.2,
+        });
+        
+        // Cisco IOS
         let mut cisco_tcp = TcpFingerprint::new();
         cisco_tcp.initial_ttl = Some(255);
         cisco_tcp.window_size = Some(4128);
@@ -668,18 +848,140 @@ impl OsFingerprinter {
             device_type: Some("Router".to_string()),
             tcp_fingerprint: Some(cisco_tcp),
             icmp_fingerprint: None,
-            http_patterns: vec!["cisco".to_string()],
+            http_patterns: vec!["cisco".to_string(), "Cisco".to_string()],
             ssh_patterns: vec!["Cisco".to_string()],
             weight: 1.2,
+        });
+        
+        // Juniper JunOS
+        let mut juniper_tcp = TcpFingerprint::new();
+        juniper_tcp.initial_ttl = Some(64);
+        juniper_tcp.window_size = Some(16384);
+        juniper_tcp.mss = Some(1460);
+        juniper_tcp.sack_permitted = true;
+        juniper_tcp.timestamp = true;
+        juniper_tcp.window_scale = Some(4);
+        
+        self.signatures.push(OsSignature {
+            os_family: "Juniper JunOS".to_string(),
+            os_version: None,
+            device_type: Some("Router".to_string()),
+            tcp_fingerprint: Some(juniper_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec!["Juniper".to_string()],
+            ssh_patterns: vec!["OpenSSH".to_string()],
+            weight: 1.2,
+        });
+        
+        // Mikrotik RouterOS
+        let mut mikrotik_tcp = TcpFingerprint::new();
+        mikrotik_tcp.initial_ttl = Some(64);
+        mikrotik_tcp.window_size = Some(14600);
+        mikrotik_tcp.mss = Some(1460);
+        mikrotik_tcp.sack_permitted = true;
+        mikrotik_tcp.timestamp = false;
+        mikrotik_tcp.window_scale = Some(7);
+        
+        self.signatures.push(OsSignature {
+            os_family: "MikroTik RouterOS".to_string(),
+            os_version: None,
+            device_type: Some("Router".to_string()),
+            tcp_fingerprint: Some(mikrotik_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec!["RouterOS".to_string(), "MikroTik".to_string()],
+            ssh_patterns: vec!["ROSSSH".to_string()],
+            weight: 1.2,
+        });
+        
+        // pfSense/OPNsense
+        let mut pfsense_tcp = TcpFingerprint::new();
+        pfsense_tcp.initial_ttl = Some(64);
+        pfsense_tcp.window_size = Some(65535);
+        pfsense_tcp.mss = Some(1460);
+        pfsense_tcp.sack_permitted = true;
+        pfsense_tcp.timestamp = true;
+        pfsense_tcp.window_scale = Some(6);
+        
+        self.signatures.push(OsSignature {
+            os_family: "pfSense".to_string(),
+            os_version: None,
+            device_type: Some("Firewall".to_string()),
+            tcp_fingerprint: Some(pfsense_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec!["nginx".to_string(), "lighttpd".to_string()],
+            ssh_patterns: vec!["OpenSSH".to_string()],
+            weight: 1.1,
+        });
+        
+        // VMware ESXi
+        let mut vmware_tcp = TcpFingerprint::new();
+        vmware_tcp.initial_ttl = Some(64);
+        vmware_tcp.window_size = Some(65535);
+        vmware_tcp.mss = Some(1460);
+        vmware_tcp.sack_permitted = true;
+        vmware_tcp.timestamp = true;
+        vmware_tcp.window_scale = Some(7);
+        
+        self.signatures.push(OsSignature {
+            os_family: "VMware ESXi".to_string(),
+            os_version: None,
+            device_type: Some("Hypervisor".to_string()),
+            tcp_fingerprint: Some(vmware_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec!["VMware".to_string(), "ESXi".to_string()],
+            ssh_patterns: vec!["OpenSSH".to_string()],
+            weight: 1.1,
+        });
+        
+        // Android
+        let mut android_tcp = TcpFingerprint::new();
+        android_tcp.initial_ttl = Some(64);
+        android_tcp.window_size = Some(65535);
+        android_tcp.mss = Some(1460);
+        android_tcp.sack_permitted = true;
+        android_tcp.timestamp = true;
+        android_tcp.window_scale = Some(8);
+        
+        self.signatures.push(OsSignature {
+            os_family: "Android".to_string(),
+            os_version: None,
+            device_type: Some("Mobile".to_string()),
+            tcp_fingerprint: Some(android_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec![],
+            ssh_patterns: vec!["OpenSSH".to_string()],
+            weight: 1.0,
+        });
+        
+        // iOS
+        let mut ios_tcp = TcpFingerprint::new();
+        ios_tcp.initial_ttl = Some(64);
+        ios_tcp.window_size = Some(65535);
+        ios_tcp.mss = Some(1460);
+        ios_tcp.sack_permitted = true;
+        ios_tcp.timestamp = true;
+        ios_tcp.window_scale = Some(6);
+        
+        self.signatures.push(OsSignature {
+            os_family: "iOS".to_string(),
+            os_version: None,
+            device_type: Some("Mobile".to_string()),
+            tcp_fingerprint: Some(ios_tcp),
+            icmp_fingerprint: None,
+            http_patterns: vec![],
+            ssh_patterns: vec![],
+            weight: 1.0,
         });
     }
     
     /// Load TTL-based signatures
     fn load_ttl_signatures(&mut self) {
+        self.ttl_signatures.insert(30, vec!["Linux (very old)".to_string()]);
         self.ttl_signatures.insert(32, vec!["Linux (old)".to_string(), "Unix".to_string()]);
-        self.ttl_signatures.insert(64, vec!["Linux".to_string(), "macOS".to_string(), "Unix".to_string()]);
+        self.ttl_signatures.insert(60, vec!["macOS (old)".to_string()]);
+        self.ttl_signatures.insert(64, vec!["Linux".to_string(), "macOS".to_string(), "Unix".to_string(), "FreeBSD".to_string(), "OpenBSD".to_string(), "NetBSD".to_string(), "Android".to_string(), "iOS".to_string()]);
         self.ttl_signatures.insert(128, vec!["Windows".to_string()]);
-        self.ttl_signatures.insert(255, vec!["Cisco".to_string(), "Solaris".to_string(), "AIX".to_string()]);
+        self.ttl_signatures.insert(255, vec!["Cisco".to_string(), "Solaris".to_string(), "AIX".to_string(), "Juniper".to_string()]);
     }
     
     /// Get all known OS families

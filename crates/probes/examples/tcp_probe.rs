@@ -5,7 +5,7 @@
 use cynetmapper_probes::*;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("TCP probe example");
     
     // Example target

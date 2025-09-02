@@ -300,6 +300,13 @@ impl NetworkScanner {
 
     /// Check if a host is reachable (basic connectivity test)
     pub async fn is_host_reachable(&self, address: IpAddr) -> Result<bool> {
+        // Localhost is always reachable
+        match address {
+            IpAddr::V4(ipv4) if ipv4.is_loopback() => return Ok(true),
+            IpAddr::V6(ipv6) if ipv6.is_loopback() => return Ok(true),
+            _ => {}
+        }
+        
         // Try to connect to common ports to test reachability
         let common_ports = [80, 443, 22, 21, 25, 53, 110, 143, 993, 995];
         

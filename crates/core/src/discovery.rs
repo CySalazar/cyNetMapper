@@ -353,18 +353,7 @@ impl DiscoveryEngine {
         
         match base_ip {
             IpAddr::V4(ipv4) => self.expand_ipv4_cidr(ipv4, prefix),
-            IpAddr::V6(_ipv6) => {
-                // IPv6 CIDR expansion is complex and can generate huge ranges
-                // For MVP, limit to small prefixes or return error
-                if prefix < 120 {
-                    return Err(Error::Parse(ParseError::InvalidCidr { 
-                        cidr: format!("IPv6 CIDR prefix too large for expansion: /{}", prefix) 
-                    }));
-                }
-                // TODO: Implement IPv6 CIDR expansion for small ranges
-                warn!("IPv6 CIDR expansion not fully implemented in MVP");
-                Ok(vec![base_ip])
-            }
+            IpAddr::V6(ipv6) => self.expand_ipv6_cidr(ipv6, prefix)
         }
     }
     
@@ -401,6 +390,39 @@ impl DiscoveryEngine {
         Ok(ips)
     }
     
+    /// Expand IPv6 CIDR to individual IPs
+    fn expand_ipv6_cidr(&self, base_ip: Ipv6Addr, prefix: u8) -> Result<Vec<IpAddr>> {
+        if prefix > 128 {
+            return Err(Error::Parse(ParseError::InvalidCidr { cidr: "IPv6 prefix cannot be greater than 128".to_string() }));
+        }
+        
+        // Prevent expansion of very large networks
+        if prefix < 112 {
+            return Err(Error::Parse(ParseError::InvalidCidr { cidr: "IPv6 CIDR prefix too large for expansion (minimum /112)".to_string() }));
+        }
+        
+        let host_bits = 128 - prefix;
+        let num_hosts = 1u128 << host_bits;
+        
+        // Additional safety check
+        if num_hosts > 65536 {
+            return Err(Error::Parse(ParseError::InvalidCidr { cidr: "IPv6 CIDR range too large for expansion (maximum 65536 addresses)".to_string() }));
+        }
+        
+        let base_int = u128::from(base_ip);
+        let network_mask = !((1u128 << host_bits) - 1);
+        let network_base = base_int & network_mask;
+        
+        let mut ips = Vec::new();
+        for i in 0..num_hosts {
+            let addr_int = network_base | i;
+            let addr = Ipv6Addr::from(addr_int);
+            ips.push(IpAddr::V6(addr));
+        }
+        
+        Ok(ips)
+    }
+    
     /// Expand IP range to individual IPs
     fn expand_ip_range(&self, start: IpAddr, end: IpAddr) -> Result<Vec<IpAddr>> {
         match (start, end) {
@@ -425,10 +447,26 @@ impl DiscoveryEngine {
                 
                 Ok(ips)
             },
-            (IpAddr::V6(_), IpAddr::V6(_)) => {
-                // IPv6 range expansion is complex
-                warn!("IPv6 range expansion not implemented in MVP");
-                Ok(vec![start, end])
+            (IpAddr::V6(start_v6), IpAddr::V6(end_v6)) => {
+                let start_int = u128::from(start_v6);
+                let end_int = u128::from(end_v6);
+                
+                if end_int < start_int {
+                    return Err(Error::Parse(ParseError::InvalidIpAddress { address: "End IPv6 must be >= start IPv6".to_string() }));
+                }
+                
+                let range_size = end_int - start_int + 1;
+                if range_size > 65536 {
+                    return Err(Error::Parse(ParseError::InvalidIpAddress { address: "IPv6 range too large for expansion (maximum 65536 addresses)".to_string() }));
+                }
+                
+                let mut ips = Vec::new();
+                for addr_int in start_int..=end_int {
+                    let addr = Ipv6Addr::from(addr_int);
+                    ips.push(IpAddr::V6(addr));
+                }
+                
+                Ok(ips)
             },
             _ => Err(Error::Parse(ParseError::InvalidIpAddress { address: "IP range must use same IP version".to_string() })),
         }

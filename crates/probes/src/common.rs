@@ -325,6 +325,16 @@ impl ProbeStats {
             (self.timeouts as f64 / self.probes_sent as f64) * 100.0
         }
     }
+    
+    /// Increment the number of probes sent
+    pub fn increment_probes(&mut self) {
+        self.probes_sent += 1;
+    }
+    
+    /// Increment the number of failed probes
+    pub fn increment_failed(&mut self) {
+        self.probes_failed += 1;
+    }
 }
 
 /// Probe capability flags
@@ -495,7 +505,7 @@ mod tests {
 
     #[test]
     fn test_probe_result_success() {
-        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
+        let target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
         let result = ProbeResult::success(
             target,
             Protocol::Tcp,
@@ -513,7 +523,7 @@ mod tests {
 
     #[test]
     fn test_probe_result_failure() {
-        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
+        let target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
         let result = ProbeResult::failure(
             target,
             Protocol::Tcp,
@@ -531,7 +541,7 @@ mod tests {
     #[test]
     fn test_probe_stats() {
         let mut stats = ProbeStats::new();
-        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
+        let target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
         
         // Add successful result
         let success_result = ProbeResult::success(
@@ -593,7 +603,7 @@ mod tests {
 
     #[test]
     fn test_probe_result_metadata() {
-        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
+        let target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 80);
         let result = ProbeResult::success(
             target,
             Protocol::Tcp,

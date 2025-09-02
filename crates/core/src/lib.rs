@@ -38,7 +38,9 @@
 pub mod config;
 pub mod discovery;
 pub mod error;
+pub mod evasion;
 pub mod network;
+pub mod rate_limiter;
 pub mod results;
 pub mod scanner;
 pub mod security;
@@ -49,6 +51,7 @@ pub mod types;
 pub use config::{Config};
 pub use discovery::{DiscoveryEngine};
 pub use error::{Error, Result};
+pub use evasion::{EvasionConfig, EvasionManager, EvasionTechnique};
 pub use network::{NetworkScanner};
 pub use results::{ScanResults, HostResult, PortResult};
 pub use scanner::Scanner;

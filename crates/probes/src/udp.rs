@@ -525,17 +525,49 @@ pub mod payloads {
     /// RPC portmapper
     pub const RPC_PORTMAP: &[u8] = b"\x12\x34\x56\x78\x00\x00\x00\x00\x00\x00\x00\x02\x00\x01\x86\xa0\x00\x00\x00\x02\x00\x00\x00\x03\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
     
+    /// RADIUS Access-Request
+    pub const RADIUS_ACCESS: &[u8] = b"\x01\x00\x00\x14\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+    
+    /// L2TP tunnel request
+    pub const L2TP_TUNNEL: &[u8] = b"\xc8\x02\x00\x14\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+    
+    /// IKE Main Mode
+    pub const IKE_MAIN_MODE: &[u8] = b"\x12\x34\x56\x78\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x10\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+    
+    /// MS-SQL ping
+    pub const MSSQL_PING: &[u8] = b"\x02";
+    
+    /// Kerberos AS-REQ
+    pub const KERBEROS_AS_REQ: &[u8] = b"\x6a\x81\x9e\x30\x81\x9b\xa1\x03\x02\x01\x05\xa2\x03\x02\x01\x0a";
+    
+    /// LDAP search request
+    pub const LDAP_SEARCH: &[u8] = b"\x30\x0c\x02\x01\x01\x63\x07\x0a\x01\x00\x0a\x01\x00\x01\x01\x00";
+    
+    /// Memcached stats
+    pub const MEMCACHED_STATS: &[u8] = b"stats\r\n";
+    
+    /// MongoDB isMaster
+    pub const MONGODB_ISMASTER: &[u8] = b"\x3f\x00\x00\x00\x12\x34\x56\x78\x00\x00\x00\x00\xd4\x07\x00\x00\x00\x00\x00\x00\x74\x65\x73\x74\x2e\x24\x63\x6d\x64\x00\x00\x00\x00\x00\xff\xff\xff\xff\x17\x00\x00\x00\x10\x69\x73\x4d\x61\x73\x74\x65\x72\x00\x01\x00\x00\x00\x00";
+    
     /// Get payload for common UDP services
     pub fn get_service_payload(port: u16) -> Option<&'static [u8]> {
         match port {
             53 => Some(DNS_VERSION_BIND),
             67 | 68 => Some(DHCP_DISCOVER),
             69 => Some(TFTP_READ),
+            88 => Some(KERBEROS_AS_REQ),
             111 => Some(RPC_PORTMAP),
             123 => Some(NTP_REQUEST),
             137 => Some(NETBIOS_NAME),
             161 => Some(SNMP_GET),
+            389 => Some(LDAP_SEARCH),
+            500 => Some(IKE_MAIN_MODE),
+            1434 => Some(MSSQL_PING),
+            1701 => Some(L2TP_TUNNEL),
+            1812 | 1813 => Some(RADIUS_ACCESS),
             5060 => Some(SIP_OPTIONS),
+            11211 => Some(MEMCACHED_STATS),
+            27017 => Some(MONGODB_ISMASTER),
             _ => None,
         }
     }
@@ -547,17 +579,68 @@ pub mod payloads {
             67 => Some("dhcp-server"),
             68 => Some("dhcp-client"),
             69 => Some("tftp"),
+            88 => Some("kerberos"),
             111 => Some("rpcbind"),
             123 => Some("ntp"),
+            135 => Some("msrpc"),
             137 => Some("netbios-ns"),
             138 => Some("netbios-dgm"),
             161 => Some("snmp"),
             162 => Some("snmp-trap"),
+            389 => Some("ldap"),
+            445 => Some("microsoft-ds"),
+            500 => Some("isakmp"),
             514 => Some("syslog"),
             520 => Some("rip"),
+            631 => Some("ipp"),
+            1434 => Some("ms-sql-m"),
+            1701 => Some("l2tp"),
+            1812 => Some("radius"),
+            1813 => Some("radius-acct"),
             1900 => Some("upnp"),
+            4500 => Some("ipsec-nat-t"),
             5060 => Some("sip"),
+            5353 => Some("mdns"),
+            11211 => Some("memcached"),
+            27017 => Some("mongodb"),
             _ => None,
+        }
+    }
+    
+    /// Get expected response patterns for UDP services
+    pub fn get_response_pattern(port: u16) -> Option<&'static [u8]> {
+        match port {
+            53 => Some(b"\x12\x34"), // DNS response with same ID
+            123 => Some(b"\x1c"), // NTP response (server mode)
+            161 => Some(b"\x30"), // SNMP response (ASN.1 sequence)
+            _ => None,
+        }
+    }
+    
+    /// Check if response indicates an open port
+    pub fn is_positive_response(port: u16, response: &[u8]) -> bool {
+        if response.is_empty() {
+            return false;
+        }
+        
+        match port {
+            53 => {
+                // DNS response should have QR bit set and proper format
+                response.len() >= 12 && (response[2] & 0x80) != 0
+            },
+            123 => {
+                // NTP response should be 48 bytes and have proper mode
+                response.len() == 48 && (response[0] & 0x07) == 4
+            },
+            161 => {
+                // SNMP response should start with ASN.1 sequence
+                response.len() >= 2 && response[0] == 0x30
+            },
+            69 => {
+                // TFTP error response indicates service is running
+                response.len() >= 4 && response[0] == 0x00 && response[1] == 0x05
+            },
+            _ => true, // Any response indicates the port is open
         }
     }
 }
@@ -614,15 +697,15 @@ mod tests {
         let probe = UdpProbe::new(&config).unwrap();
         
         // Valid targets
-        let valid_target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53);
+        let valid_target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 53);
         assert!(probe.is_valid_target(valid_target));
         
         // Invalid port
-        let invalid_port = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 0);
+        let invalid_port = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8)), 0);
         assert!(!probe.is_valid_target(invalid_port));
         
         // Invalid IP (loopback)
-        let invalid_ip = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 53);
+        let invalid_ip = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 53);
         assert!(!probe.is_valid_target(invalid_ip));
     }
 
@@ -632,7 +715,7 @@ mod tests {
         let mut probe = UdpProbe::new(&config).unwrap();
         
         // Test against a likely closed port on localhost
-        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9999);
+        let target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9999);
         let options = UdpProbeBuilder::new()
             .send_timeout(Duration::from_millis(100))
             .recv_timeout(Duration::from_millis(200))
@@ -667,7 +750,7 @@ mod tests {
 
     #[test]
     fn test_udp_probe_result() {
-        let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 53);
+        let target = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1)), 53);
         let base_result = ProbeResult::success(
             target,
             Protocol::Udp,
@@ -697,8 +780,8 @@ mod tests {
         let mut probe = UdpProbe::new(&config).unwrap();
         
         let targets = vec![
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9998),
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9999),
+            SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9998),
+            SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9999),
         ];
         
         let options = UdpProbeBuilder::new()

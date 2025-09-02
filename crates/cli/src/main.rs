@@ -172,6 +172,7 @@ async fn execute_scan(cli: &Cli, config: &Arc<Config>) -> Result<()> {
         max_concurrency: cli.max_concurrent,
         timeout: std::time::Duration::from_secs(cli.timeout),
         protocols: vec![Protocol::Tcp], // Only TCP for CLI
+        host_discovery: true, // Enable host discovery to populate results.hosts
         ..Default::default()
     };
     
@@ -185,8 +186,10 @@ async fn execute_scan(cli: &Cli, config: &Arc<Config>) -> Result<()> {
     
     // Display results
     println!("\n{}", "Scan Results:".green().bold());
+    println!("Debug: Found {} hosts, {} ports total", scan_results.hosts.len(), scan_results.ports.len());
+    
     for host_result in &scan_results.hosts {
-        println!("\nHost: {}", host_result.address.to_string().cyan());
+        println!("\nHost: {} (state: {:?})", host_result.address.to_string().cyan(), host_result.state);
         
         if let Some(hostname) = &host_result.hostname {
             println!("  Hostname: {}", hostname.yellow());
@@ -194,6 +197,7 @@ async fn execute_scan(cli: &Cli, config: &Arc<Config>) -> Result<()> {
         
         // Get open ports for this host
         let open_ports = scan_results.open_ports_for_host(&host_result.address);
+        println!("  Debug: Found {} open ports for this host", open_ports.len());
         
         if open_ports.is_empty() {
             println!("  {}", "No open ports found".yellow());

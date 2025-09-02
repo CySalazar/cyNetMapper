@@ -184,15 +184,62 @@ fn parse_ipv4_cidr(base_ip: Ipv4Addr, prefix_len: u8) -> Result<Vec<IpAddr>> {
     Ok(ips)
 }
 
-/// Parse IPv6 CIDR into IP addresses (simplified implementation)
+/// Parse IPv6 CIDR into IP addresses (enhanced implementation)
 fn parse_ipv6_cidr(base_ip: Ipv6Addr, prefix_len: u8) -> Result<Vec<IpAddr>> {
-    // For IPv6, we'll only support /128 (single host) for now
-    // Full IPv6 CIDR expansion can be very large
     if prefix_len == 128 {
-        Ok(vec![IpAddr::V6(base_ip)])
-    } else {
-        Err(anyhow!("IPv6 CIDR ranges other than /128 are not supported yet"))
+        return Ok(vec![IpAddr::V6(base_ip)]);
     }
+    
+    // For IPv6, we support reasonable subnet sizes to avoid memory issues
+    // /120 = 256 addresses, /112 = 65536 addresses
+    if prefix_len < 112 {
+        return Err(anyhow!("IPv6 CIDR prefix too large (minimum /112 supported)"));
+    }
+    
+    let host_bits = 128 - prefix_len;
+    let num_hosts = 1u128 << host_bits;
+    
+    // Limit to prevent memory exhaustion
+    if num_hosts > 65536 {
+        return Err(anyhow!("IPv6 CIDR range too large (maximum 65536 addresses)"));
+    }
+    
+    let mut ips = Vec::new();
+    let base_segments = base_ip.segments();
+    
+    // Calculate network base by applying prefix mask
+    let mut network_segments = base_segments;
+    let full_segments = prefix_len / 16;
+    let remaining_bits = prefix_len % 16;
+    
+    // Clear host bits
+    for i in (full_segments as usize)..8 {
+        if i == full_segments as usize && remaining_bits > 0 {
+            let mask = 0xffff << (16 - remaining_bits);
+            network_segments[i] &= mask;
+        } else if i > full_segments as usize {
+            network_segments[i] = 0;
+        }
+    }
+    
+    // Generate all addresses in the subnet
+    for i in 0..num_hosts {
+        let mut addr_segments = network_segments;
+        
+        // Add the host part
+        let mut host_value = i;
+        for seg_idx in (0..8).rev() {
+            if host_value == 0 {
+                break;
+            }
+            addr_segments[seg_idx] = (addr_segments[seg_idx] as u128 + (host_value & 0xffff)) as u16;
+            host_value >>= 16;
+        }
+        
+        ips.push(IpAddr::V6(Ipv6Addr::from(addr_segments)));
+    }
+    
+    Ok(ips)
 }
 
 /// Parse IP range notation into IP addresses
@@ -211,8 +258,8 @@ fn parse_ip_range(range: &str) -> Result<Vec<IpAddr>> {
         (IpAddr::V4(start), IpAddr::V4(end)) => {
             parse_ipv4_range(start, end)
         }
-        (IpAddr::V6(_), IpAddr::V6(_)) => {
-            Err(anyhow!("IPv6 ranges are not supported yet"))
+        (IpAddr::V6(start), IpAddr::V6(end)) => {
+            parse_ipv6_range(start, end)
         }
         _ => {
             Err(anyhow!("IP range must use the same IP version"))
@@ -240,6 +287,36 @@ fn parse_ipv4_range(start: Ipv4Addr, end: Ipv4Addr) -> Result<Vec<IpAddr>> {
     for ip_u32 in start_u32..=end_u32 {
         let ip = Ipv4Addr::from(ip_u32);
         ips.push(IpAddr::V4(ip));
+    }
+    
+    Ok(ips)
+}
+
+/// Parse IPv6 range into IP addresses
+fn parse_ipv6_range(start: Ipv6Addr, end: Ipv6Addr) -> Result<Vec<IpAddr>> {
+    let start_u128 = u128::from(start);
+    let end_u128 = u128::from(end);
+    
+    if start_u128 > end_u128 {
+        return Err(anyhow!("Invalid IPv6 range: start IP is greater than end IP"));
+    }
+    
+    let num_ips = end_u128.saturating_sub(start_u128).saturating_add(1);
+    
+    // Limit the number of IPs to prevent memory issues
+    if num_ips > 65536 {
+        return Err(anyhow!("IPv6 range too large (>{} IPs). Use smaller ranges.", 65536));
+    }
+    
+    let mut ips = Vec::new();
+    let mut current = start_u128;
+    
+    while current <= end_u128 && ips.len() < 65536 {
+        ips.push(IpAddr::V6(Ipv6Addr::from(current)));
+        if current == u128::MAX {
+            break; // Prevent overflow
+        }
+        current += 1;
     }
     
     Ok(ips)
@@ -472,5 +549,39 @@ mod tests {
         
         let top_udp = get_top_ports(Protocol::Udp, 5);
         assert_eq!(top_udp.len(), 5);
+    }
+
+    #[test]
+    fn test_parse_ipv6_cidr() {
+        // Test /128 (single host)
+        let result = parse_ipv6_cidr("::1".parse().unwrap(), 128).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], IpAddr::V6("::1".parse().unwrap()));
+        
+        // Test /120 (256 addresses)
+        let result = parse_ipv6_cidr("2001:db8::".parse().unwrap(), 120).unwrap();
+        assert_eq!(result.len(), 256);
+        
+        // Test invalid prefix (too large)
+        let result = parse_ipv6_cidr("2001:db8::".parse().unwrap(), 64);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_ipv6_range() {
+        // Test small range
+        let start: Ipv6Addr = "2001:db8::1".parse().unwrap();
+        let end: Ipv6Addr = "2001:db8::3".parse().unwrap();
+        let result = parse_ipv6_range(start, end).unwrap();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], IpAddr::V6("2001:db8::1".parse().unwrap()));
+        assert_eq!(result[1], IpAddr::V6("2001:db8::2".parse().unwrap()));
+        assert_eq!(result[2], IpAddr::V6("2001:db8::3".parse().unwrap()));
+        
+        // Test invalid range (start > end)
+        let start: Ipv6Addr = "2001:db8::3".parse().unwrap();
+        let end: Ipv6Addr = "2001:db8::1".parse().unwrap();
+        let result = parse_ipv6_range(start, end);
+        assert!(result.is_err());
     }
 }

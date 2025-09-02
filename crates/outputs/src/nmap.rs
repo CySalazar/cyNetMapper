@@ -4,7 +4,7 @@
 //! with existing tools and workflows.
 
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use crate::{OutputError, OutputResult, ScanResults, HostState, PortState, Protocol};
 
 /// Nmap XML DTD version
@@ -29,6 +29,9 @@ pub fn generate_nmap_xml(results: &ScanResults) -> OutputResult<String> {
     xml.push_str(&format!(
         "<!DOCTYPE nmaprun SYSTEM \"https://nmap.org/dtd/nmap.dtd\">\n"
     ));
+    xml.push_str(&format!(
+        "<?xml-stylesheet href=\"file:///usr/bin/../share/nmap/nmap.xsl\" type=\"text/xsl\"?>\n"
+    ));
     
     // Root nmaprun element
     let start_timestamp = results.metadata.start_time
@@ -45,12 +48,16 @@ pub fn generate_nmap_xml(results: &ScanResults) -> OutputResult<String> {
         NMAP_DTD_VERSION
     ));
     
-    // Scan info
-    xml.push_str(&format!(
-        "  <scaninfo type=\"{}\" protocol=\"tcp\" numservices=\"{}\" services=\"1-65535\"/>\n",
-        map_scan_type(&results.metadata.scan_type),
-        results.statistics.total_ports
-    ));
+    // Scan info - support multiple protocols
+    let protocols = get_scan_protocols(&results.metadata.scan_type);
+    for protocol in &protocols {
+        xml.push_str(&format!(
+            "  <scaninfo type=\"{}\" protocol=\"{}\" numservices=\"{}\" services=\"1-65535\"/>\n",
+            map_scan_type(&results.metadata.scan_type),
+            protocol,
+            results.statistics.total_ports
+        ));
+    }
     
     // Verbose and debugging info
     xml.push_str("  <verbose level=\"0\"/>\n");
@@ -178,14 +185,17 @@ fn generate_host_xml(host: &crate::HostResult) -> OutputResult<String> {
             // Service information
             if let Some(service) = &port.service {
                 xml.push_str(&format!(
-                    "        <service name=\"{}\" product=\"{}\" version=\"{}\" conf=\"{}\">\n",
+                    "        <service name=\"{}\" product=\"{}\" version=\"{}\" extrainfo=\"{}\" method=\"{}\" conf=\"{}\">\n",
                     escape_xml(&service.name),
                     escape_xml(&service.product.as_deref().unwrap_or("")),
                     escape_xml(&service.version.as_deref().unwrap_or("")),
+                    escape_xml(&service.extra_info.as_deref().unwrap_or("")),
+                    "probes", // Detection method
                     (service.confidence * 10.0) as u8 // Nmap uses 0-10 scale
                 ));
                 
-                if let Some(banner) = &port.banner {
+                // Add CPE information if available
+                if service.product.is_some() || service.version.is_some() {
                     xml.push_str(&format!(
                         "          <cpe>cpe:/a:{}:{}:{}</cpe>\n",
                         escape_xml(&service.name),
@@ -197,6 +207,13 @@ fn generate_host_xml(host: &crate::HostResult) -> OutputResult<String> {
                 xml.push_str("        </service>\n");
             }
             
+            // Script results (placeholder for NSE-like functionality)
+            if let Some(banner) = &port.banner {
+                xml.push_str("        <script id=\"banner\" output=\"");
+                xml.push_str(&escape_xml(banner));
+                xml.push_str("\"/>\n");
+            }
+            
             xml.push_str("      </port>\n");
         }
         
@@ -206,25 +223,81 @@ fn generate_host_xml(host: &crate::HostResult) -> OutputResult<String> {
     // OS detection
     if let Some(os) = &host.os_fingerprint {
         xml.push_str("    <os>\n");
-        xml.push_str("      <portused state=\"open\" proto=\"tcp\" portid=\"80\"/>\n");
+        
+        // Find an open port for OS detection reference
+        let open_port = host.ports.iter()
+            .find(|p| p.state == PortState::Open)
+            .map(|p| (p.port, map_protocol(&p.protocol)))
+            .unwrap_or((80, "tcp"));
+            
+        xml.push_str(&format!(
+            "      <portused state=\"open\" proto=\"{}\" portid=\"{}\"/>\n",
+            open_port.1, open_port.0
+        ));
+        
         xml.push_str(&format!(
             "      <osmatch name=\"{}\" accuracy=\"{}\" line=\"0\">\n",
             escape_xml(&format!("{} {}", os.family, os.version.as_deref().unwrap_or(""))),
             (os.confidence * 100.0) as u8
         ));
+        
+        // OS class with device type
+        let device_type = os.device_type.as_deref().unwrap_or("general purpose");
         xml.push_str(&format!(
-            "        <osclass type=\"general purpose\" vendor=\"{}\" osfamily=\"{}\" osgen=\"{}\" accuracy=\"{}\"/>\n",
-            escape_xml(&os.family),
+            "        <osclass type=\"{}\" vendor=\"{}\" osfamily=\"{}\" osgen=\"{}\" accuracy=\"{}\">\n",
+            escape_xml(device_type),
+            extract_vendor(&os.family),
             escape_xml(&os.family),
             escape_xml(&os.version.as_deref().unwrap_or("")),
             (os.confidence * 100.0) as u8
         ));
+        
+        // Add CPE for OS
+        xml.push_str(&format!(
+            "          <cpe>cpe:/o:{}:{}:{}</cpe>\n",
+            extract_vendor(&os.family).to_lowercase(),
+            os.family.to_lowercase().replace(" ", "_"),
+            os.version.as_deref().unwrap_or("").replace(" ", "_")
+        ));
+        
+        xml.push_str("        </osclass>\n");
         xml.push_str("      </osmatch>\n");
+        
+        // OS fingerprint details
+        xml.push_str(&format!(
+            "      <osfingerprint fingerprint=\"{}\" />\n",
+            escape_xml(&format!("Method: {}, Confidence: {:.1}%", os.method, os.confidence * 100.0))
+        ));
+        
         xml.push_str("    </os>\n");
     }
     
-    // Times
-    xml.push_str("    <times srtt=\"1000\" rttvar=\"1000\" to=\"100000\"/>\n");
+    // Distance (TTL-based estimation)
+    xml.push_str("    <distance value=\"1\"/>\n");
+    
+    // Times - use actual response times if available
+    let avg_rtt = if !host.response_times.is_empty() {
+        host.response_times.iter().sum::<Duration>().as_micros() / host.response_times.len() as u128
+    } else {
+        1000
+    };
+    
+    xml.push_str(&format!(
+        "    <times srtt=\"{}\" rttvar=\"{}\" to=\"{}\"/>\n",
+        avg_rtt,
+        avg_rtt / 4, // Rough estimate of variance
+        avg_rtt * 3  // Timeout
+    ));
+    
+    // Host scripts (placeholder for future NSE-like functionality)
+    if !host.hostnames.is_empty() {
+        xml.push_str("    <hostscript>\n");
+        xml.push_str(&format!(
+            "      <script id=\"dns-brute\" output=\"Found {} hostnames\"/>\n",
+            host.hostnames.len()
+        ));
+        xml.push_str("    </hostscript>\n");
+    }
     
     xml.push_str("  </host>\n");
     
@@ -236,11 +309,54 @@ fn map_scan_type(scan_type: &str) -> &str {
     match scan_type {
         "tcp_connect" => "connect",
         "tcp_syn" => "syn",
+        "tcp_fin" => "fin",
+        "tcp_null" => "null",
+        "tcp_xmas" => "xmas",
         "udp" => "udp",
         "icmp" => "ping",
         "arp" => "arp",
         "discovery" => "ping",
         _ => "connect",
+    }
+}
+
+/// Get protocols used in scan
+fn get_scan_protocols(scan_type: &str) -> Vec<&str> {
+    match scan_type {
+        "udp" => vec!["udp"],
+        "tcp_udp" => vec!["tcp", "udp"],
+        _ => vec!["tcp"],
+    }
+}
+
+/// Map protocol enum to string
+fn map_protocol(protocol: &Protocol) -> &str {
+    match protocol {
+        Protocol::Tcp => "tcp",
+        Protocol::Udp => "udp",
+        Protocol::Icmp => "icmp",
+        Protocol::Sctp => "sctp",
+    }
+}
+
+/// Extract vendor from OS family string
+fn extract_vendor(os_family: &str) -> &str {
+    if os_family.to_lowercase().contains("windows") {
+        "Microsoft"
+    } else if os_family.to_lowercase().contains("linux") {
+        "Linux"
+    } else if os_family.to_lowercase().contains("macos") || os_family.to_lowercase().contains("darwin") {
+        "Apple"
+    } else if os_family.to_lowercase().contains("freebsd") {
+        "FreeBSD"
+    } else if os_family.to_lowercase().contains("openbsd") {
+        "OpenBSD"
+    } else if os_family.to_lowercase().contains("netbsd") {
+        "NetBSD"
+    } else if os_family.to_lowercase().contains("cisco") {
+        "Cisco"
+    } else {
+        "Unknown"
     }
 }
 
@@ -288,15 +404,7 @@ fn map_port_reason(state: &PortState) -> &str {
     }
 }
 
-/// Map protocol to Nmap format
-fn map_protocol(protocol: &Protocol) -> &str {
-    match protocol {
-        Protocol::Tcp => "tcp",
-        Protocol::Udp => "udp",
-        Protocol::Sctp => "sctp",
-        Protocol::Icmp => "icmp",
-    }
-}
+
 
 /// Format timestamp for Nmap XML
 fn format_nmap_timestamp(time: SystemTime) -> String {

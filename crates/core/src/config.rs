@@ -83,6 +83,8 @@ pub struct TimingConfig {
     pub adaptive_timing: bool,
     /// Timing template
     pub timing_template: TimingTemplate,
+    /// Advanced timing parameters
+    pub advanced: AdvancedTimingConfig,
 }
 
 /// Output configuration
@@ -263,6 +265,35 @@ pub struct RateLimitPolicy {
     pub burst: Option<u32>,
 }
 
+/// Advanced timing configuration compatible with nmap
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdvancedTimingConfig {
+    /// Minimum RTT timeout
+    pub min_rtt_timeout: Duration,
+    /// Maximum RTT timeout
+    pub max_rtt_timeout: Duration,
+    /// Initial RTT timeout
+    pub initial_rtt_timeout: Duration,
+    /// Maximum host group size
+    pub max_hostgroup: u32,
+    /// Minimum host group size
+    pub min_hostgroup: u32,
+    /// Maximum parallelism
+    pub max_parallelism: u32,
+    /// Minimum parallelism
+    pub min_parallelism: u32,
+    /// Maximum scan delay
+    pub max_scan_delay: Duration,
+    /// Minimum scan delay
+    pub min_scan_delay: Duration,
+    /// Host timeout
+    pub host_timeout: Option<Duration>,
+    /// Defeat reset rate limiting
+    pub defeat_rst_ratelimit: bool,
+    /// Defeat ICMP rate limiting
+    pub defeat_icmp_ratelimit: bool,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -311,6 +342,26 @@ impl Default for TimingConfig {
             rate_limit: None,
             adaptive_timing: true,
             timing_template: TimingTemplate::T3,
+            advanced: AdvancedTimingConfig::default(),
+        }
+    }
+}
+
+impl Default for AdvancedTimingConfig {
+    fn default() -> Self {
+        Self {
+            min_rtt_timeout: Duration::from_millis(100),
+            max_rtt_timeout: Duration::from_secs(10),
+            initial_rtt_timeout: Duration::from_secs(1),
+            max_hostgroup: 128,
+            min_hostgroup: 1,
+            max_parallelism: 300,
+            min_parallelism: 1,
+            max_scan_delay: Duration::from_secs(10),
+            min_scan_delay: Duration::from_millis(0),
+            host_timeout: Some(Duration::from_secs(900)),
+            defeat_rst_ratelimit: false,
+            defeat_icmp_ratelimit: false,
         }
     }
 }
@@ -388,6 +439,13 @@ impl ScanProfile {
                 connect_timeout: Duration::from_secs(1),
                 read_timeout: Duration::from_secs(2),
                 max_retries: 1,
+                advanced: AdvancedTimingConfig {
+                    max_hostgroup: 256,
+                    max_parallelism: 500,
+                    min_rtt_timeout: Duration::from_millis(50),
+                    max_rtt_timeout: Duration::from_secs(5),
+                    ..AdvancedTimingConfig::default()
+                },
                 ..TimingConfig::default()
             },
             ScanProfile::Balanced => TimingConfig::default(),
@@ -397,6 +455,14 @@ impl ScanProfile {
                 read_timeout: Duration::from_secs(10),
                 max_retries: 5,
                 probe_delay: Duration::from_millis(100),
+                advanced: AdvancedTimingConfig {
+                    max_hostgroup: 32,
+                    max_parallelism: 100,
+                    min_rtt_timeout: Duration::from_millis(200),
+                    max_rtt_timeout: Duration::from_secs(20),
+                    host_timeout: Some(Duration::from_secs(1800)),
+                    ..AdvancedTimingConfig::default()
+                },
                 ..TimingConfig::default()
             },
             ScanProfile::Stealth => TimingConfig {
@@ -406,6 +472,16 @@ impl ScanProfile {
                 max_retries: 3,
                 probe_delay: Duration::from_millis(500),
                 rate_limit: Some(1.0), // 1 probe per second
+                advanced: AdvancedTimingConfig {
+                    max_hostgroup: 8,
+                    max_parallelism: 20,
+                    min_rtt_timeout: Duration::from_millis(500),
+                    max_rtt_timeout: Duration::from_secs(30),
+                    max_scan_delay: Duration::from_secs(30),
+                    defeat_rst_ratelimit: true,
+                    defeat_icmp_ratelimit: true,
+                    ..AdvancedTimingConfig::default()
+                },
                 ..TimingConfig::default()
             },
             ScanProfile::Aggressive => TimingConfig {
@@ -413,6 +489,14 @@ impl ScanProfile {
                 connect_timeout: Duration::from_millis(500),
                 read_timeout: Duration::from_secs(1),
                 max_retries: 0,
+                advanced: AdvancedTimingConfig {
+                    max_hostgroup: 512,
+                    max_parallelism: 1000,
+                    min_rtt_timeout: Duration::from_millis(25),
+                    max_rtt_timeout: Duration::from_secs(2),
+                    host_timeout: Some(Duration::from_secs(300)),
+                    ..AdvancedTimingConfig::default()
+                },
                 ..TimingConfig::default()
             },
             ScanProfile::Custom => TimingConfig::default(),
@@ -457,45 +541,173 @@ impl ScanProfile {
 
 impl TimingTemplate {
     /// Get timing values for this template
+    /// Returns (connect_timeout, read_timeout, probe_delay, max_retries)
     pub fn values(&self) -> (Duration, Duration, Duration, u32) {
         match self {
             TimingTemplate::T0 => (
-                Duration::from_secs(300),  // connect_timeout
-                Duration::from_secs(600),  // read_timeout
-                Duration::from_secs(5),    // probe_delay
-                10,                        // max_retries
+                Duration::from_secs(300),  // 5 minutes
+                Duration::from_secs(300),
+                Duration::from_secs(5),
+                10,
             ),
             TimingTemplate::T1 => (
                 Duration::from_secs(15),
-                Duration::from_secs(30),
+                Duration::from_secs(15),
                 Duration::from_secs(1),
                 5,
             ),
             TimingTemplate::T2 => (
                 Duration::from_secs(10),
-                Duration::from_secs(20),
+                Duration::from_secs(10),
                 Duration::from_millis(400),
                 3,
             ),
             TimingTemplate::T3 => (
                 Duration::from_secs(3),
-                Duration::from_secs(5),
-                Duration::from_millis(0),
-                3,
+                Duration::from_secs(3),
+                Duration::from_millis(100),
+                2,
             ),
             TimingTemplate::T4 => (
                 Duration::from_secs(1),
-                Duration::from_secs(2),
-                Duration::from_millis(0),
-                2,
+                Duration::from_secs(1),
+                Duration::from_millis(10),
+                1,
             ),
             TimingTemplate::T5 => (
                 Duration::from_millis(500),
-                Duration::from_secs(1),
-                Duration::from_millis(0),
-                1,
+                Duration::from_millis(500),
+                Duration::from_millis(5),
+                0,
             ),
         }
+    }
+    
+    /// Get advanced timing configuration for this template
+    pub fn advanced_config(&self) -> AdvancedTimingConfig {
+        match self {
+            TimingTemplate::T0 => AdvancedTimingConfig {
+                min_rtt_timeout: Duration::from_secs(1),
+                max_rtt_timeout: Duration::from_secs(300),
+                initial_rtt_timeout: Duration::from_secs(5),
+                max_hostgroup: 1,
+                min_hostgroup: 1,
+                max_parallelism: 1,
+                min_parallelism: 1,
+                max_scan_delay: Duration::from_secs(300),
+                min_scan_delay: Duration::from_secs(5),
+                host_timeout: Some(Duration::from_secs(3600)),
+                defeat_rst_ratelimit: false,
+                defeat_icmp_ratelimit: false,
+            },
+            TimingTemplate::T1 => AdvancedTimingConfig {
+                min_rtt_timeout: Duration::from_millis(500),
+                max_rtt_timeout: Duration::from_secs(60),
+                initial_rtt_timeout: Duration::from_secs(2),
+                max_hostgroup: 5,
+                min_hostgroup: 1,
+                max_parallelism: 10,
+                min_parallelism: 1,
+                max_scan_delay: Duration::from_secs(15),
+                min_scan_delay: Duration::from_secs(1),
+                host_timeout: Some(Duration::from_secs(1800)),
+                defeat_rst_ratelimit: false,
+                defeat_icmp_ratelimit: false,
+            },
+            TimingTemplate::T2 => AdvancedTimingConfig {
+                min_rtt_timeout: Duration::from_millis(250),
+                max_rtt_timeout: Duration::from_secs(20),
+                initial_rtt_timeout: Duration::from_secs(1),
+                max_hostgroup: 20,
+                min_hostgroup: 1,
+                max_parallelism: 40,
+                min_parallelism: 1,
+                max_scan_delay: Duration::from_secs(10),
+                min_scan_delay: Duration::from_millis(400),
+                host_timeout: Some(Duration::from_secs(900)),
+                defeat_rst_ratelimit: false,
+                defeat_icmp_ratelimit: false,
+            },
+            TimingTemplate::T3 => AdvancedTimingConfig::default(),
+            TimingTemplate::T4 => AdvancedTimingConfig {
+                min_rtt_timeout: Duration::from_millis(50),
+                max_rtt_timeout: Duration::from_secs(5),
+                initial_rtt_timeout: Duration::from_millis(500),
+                max_hostgroup: 256,
+                min_hostgroup: 1,
+                max_parallelism: 500,
+                min_parallelism: 1,
+                max_scan_delay: Duration::from_secs(1),
+                min_scan_delay: Duration::from_millis(10),
+                host_timeout: Some(Duration::from_secs(300)),
+                defeat_rst_ratelimit: false,
+                defeat_icmp_ratelimit: false,
+            },
+            TimingTemplate::T5 => AdvancedTimingConfig {
+                min_rtt_timeout: Duration::from_millis(25),
+                max_rtt_timeout: Duration::from_secs(2),
+                initial_rtt_timeout: Duration::from_millis(250),
+                max_hostgroup: 1024,
+                min_hostgroup: 1,
+                max_parallelism: 2000,
+                min_parallelism: 1,
+                max_scan_delay: Duration::from_millis(500),
+                min_scan_delay: Duration::from_millis(5),
+                host_timeout: Some(Duration::from_secs(150)),
+                defeat_rst_ratelimit: true,
+                defeat_icmp_ratelimit: true,
+            },
+        }
+    }
+    
+    /// Get description of timing template
+    pub fn description(&self) -> &'static str {
+        match self {
+            TimingTemplate::T0 => "Paranoid (very slow, for IDS evasion)",
+            TimingTemplate::T1 => "Sneaky (slow, for IDS evasion)",
+            TimingTemplate::T2 => "Polite (slow, uses less bandwidth)",
+            TimingTemplate::T3 => "Normal (default timing)",
+            TimingTemplate::T4 => "Aggressive (fast, assumes reliable network)",
+            TimingTemplate::T5 => "Insane (very fast, may miss results)",
+        }
+    }
+}
+
+impl TimingConfig {
+    /// Apply timing template to this configuration
+    pub fn apply_template(&mut self, template: TimingTemplate) {
+        let (connect_timeout, read_timeout, probe_delay, max_retries) = template.values();
+        
+        self.connect_timeout = connect_timeout;
+        self.read_timeout = read_timeout;
+        self.probe_delay = probe_delay;
+        self.max_retries = max_retries;
+        self.timing_template = template;
+        
+        // Apply advanced timing configuration
+        self.advanced = template.advanced_config();
+    }
+    
+    /// Create timing configuration from template
+    pub fn from_template(template: TimingTemplate) -> Self {
+        let mut config = Self::default();
+        config.apply_template(template);
+        config
+    }
+    
+    /// Get effective parallelism based on current configuration
+    pub fn effective_parallelism(&self) -> u32 {
+        self.advanced.max_parallelism.min(1000) // Cap at reasonable limit
+    }
+    
+    /// Get effective scan delay based on current configuration
+    pub fn effective_scan_delay(&self) -> Duration {
+        self.probe_delay.max(self.advanced.min_scan_delay)
+    }
+    
+    /// Check if rate limiting defeat is enabled
+    pub fn should_defeat_ratelimit(&self) -> bool {
+        self.advanced.defeat_rst_ratelimit || self.advanced.defeat_icmp_ratelimit
     }
 }
 

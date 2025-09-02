@@ -4,7 +4,7 @@ use crate::common::{ProbeError, ProbeOptions, ProbeResult};
 use cynetmapper_core::{
     config::Config,
     error::{Error, Result},
-    types::{IpAddr, Protocol},
+    types::Protocol,
 };
 
 use serde::{Deserialize, Serialize};
@@ -603,7 +603,7 @@ pub mod utils {
 mod tests {
     use super::*;
     use cynetmapper_core::config::Config;
-    use std::net::{Ipv4Addr, SocketAddr};
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
     #[test]
     fn test_banner_result_creation() {

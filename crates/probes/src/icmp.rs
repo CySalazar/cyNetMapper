@@ -670,7 +670,7 @@ impl Default for IcmpProbeBuilder {
 mod tests {
     use super::*;
     use cynetmapper_core::config::Config;
-    use std::net::Ipv4Addr;
+    use std::net::{Ipv4Addr, SocketAddr};
     use std::sync::Arc;
 
     #[test]
@@ -753,6 +753,7 @@ mod tests {
         
         // Test with localhost (should be reachable)
         let target = IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1));
+        let target_socket = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
         let options = IcmpProbeBuilder::new()
             .count(1)
             .timeout(Duration::from_secs(1))
@@ -762,7 +763,7 @@ mod tests {
         assert!(result.is_ok());
         
         let result = result.unwrap();
-        assert_eq!(result.base.target, target);
+        assert_eq!(result.base.target, target_socket);
         assert_eq!(result.base.protocol, Protocol::Icmp);
     }
 

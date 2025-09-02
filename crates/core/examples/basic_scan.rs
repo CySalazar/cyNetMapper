@@ -5,7 +5,7 @@
 use cynetmapper_core::*;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<()> {
     println!("Basic scan example");
     
     // Example target

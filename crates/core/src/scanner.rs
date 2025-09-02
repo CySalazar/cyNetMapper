@@ -2,7 +2,9 @@
 
 use crate::config::{Config, ScanProfile, TimingTemplate};
 use crate::error::{Error, Result};
+use crate::evasion::{EvasionConfig, EvasionManager};
 use crate::network::NetworkScanner;
+use crate::rate_limiter::{AdaptiveRateLimiter, CongestionDetector, TokenBucketLimiter};
 use crate::results::*;
 use crate::security::SecurityContext;
 use crate::timing::TimingController;
@@ -28,6 +30,14 @@ pub struct Scanner {
     security_context: SecurityContext,
     /// Timing engine
     timing_engine: TimingController,
+    /// Adaptive rate limiter
+    rate_limiter: Arc<RwLock<AdaptiveRateLimiter>>,
+    /// Token bucket for burst control
+    token_bucket: Arc<RwLock<TokenBucketLimiter>>,
+    /// Congestion detector
+    congestion_detector: Arc<RwLock<CongestionDetector>>,
+    /// Evasion manager
+    evasion_manager: Arc<RwLock<EvasionManager>>,
     /// Current scan results
     results: Arc<RwLock<ScanResults>>,
     /// Scan state
@@ -161,6 +171,39 @@ impl Scanner {
         let security_context = SecurityContext::new(&config)?;
         let timing_engine = TimingController::new(&config)?;
         
+        // Initialize rate limiting components based on timing configuration
+        let timing_config = &config.timing;
+        let initial_pps = timing_config.rate_limit.unwrap_or(1000.0);
+        let max_pps = timing_config.advanced.max_parallelism as f64;
+        let min_pps = timing_config.advanced.min_parallelism as f64;
+        
+        let rate_limiter = Arc::new(RwLock::new(
+            AdaptiveRateLimiter::new(initial_pps, min_pps, max_pps)
+        ));
+        
+        let token_bucket = Arc::new(RwLock::new(
+            TokenBucketLimiter::new(
+                timing_config.advanced.max_parallelism.min(1000),
+                initial_pps
+            )
+        ));
+        
+        let congestion_detector = Arc::new(RwLock::new(
+            CongestionDetector::new()
+        ));
+        
+        // Initialize evasion manager based on scan profile
+        let evasion_config = match config.scan.profile {
+            ScanProfile::Stealth => EvasionConfig::stealth_profile(),
+            ScanProfile::Thorough => EvasionConfig::paranoid_profile(),
+            ScanProfile::Aggressive => EvasionConfig::firewall_evasion_profile(),
+            _ => EvasionConfig::default(),
+        };
+        
+        let evasion_manager = Arc::new(RwLock::new(
+            EvasionManager::new(evasion_config)
+        ));
+        
         let metadata = ScanMetadata {
             start_time: SystemTime::now(),
             scanner_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -171,6 +214,8 @@ impl Scanner {
             options: HashMap::new(),
             ..Default::default()
         };
+    
+
         
         let results = Arc::new(RwLock::new(ScanResults::new(metadata)));
         let state = Arc::new(RwLock::new(ScanState::new()));
@@ -180,6 +225,10 @@ impl Scanner {
             network_scanner,
             security_context,
             timing_engine,
+            rate_limiter,
+            token_bucket,
+            congestion_detector,
+            evasion_manager,
             results,
             state,
         })
@@ -533,11 +582,15 @@ impl Scanner {
             "Starting service detection phase"
         );
         
-        for port in open_ports {
+        for mut port in open_ports {
             // Basic service detection based on port number
             let service_name = self.guess_service_by_port(port.address.port());
             
             if let Some(service) = service_name {
+                // Update the port result with service information
+                port.service = Some(service.to_string());
+                
+                // Create service result for detailed tracking
                 let service_result = ServiceResult {
                     address: port.address,
                     protocol: port.protocol,
@@ -552,6 +605,13 @@ impl Scanner {
                 };
                 
                 let mut results = self.results.write().await;
+                
+                // Update the port in the results
+                if let Some(existing_port) = results.ports.iter_mut().find(|p| p.address == port.address && p.protocol == port.protocol) {
+                    existing_port.service = port.service.clone();
+                }
+                
+                // Add service result for detailed tracking
                 results.add_service(service_result);
             }
         }
@@ -616,7 +676,6 @@ impl Scanner {
 
     /// Expand CIDR notation to IP addresses
     fn expand_cidr(&self, cidr: &str) -> Result<Vec<IpAddr>> {
-        // Simplified CIDR expansion - in real implementation would handle large ranges carefully
         let parts: Vec<&str> = cidr.split('/').collect();
         if parts.len() != 2 {
             return Err(Error::Parse(crate::error::ParseError::InvalidCidr { cidr: cidr.to_string() }));
@@ -627,16 +686,15 @@ impl Scanner {
         let prefix: u8 = parts[1].parse()
             .map_err(|_| Error::Parse(crate::error::ParseError::InvalidCidr { cidr: cidr.to_string() }))?;
         
-        // For MVP, limit to small subnets to avoid memory issues
-        if prefix < 24 {
-            return Err(Error::Config(crate::error::ConfigError::InvalidPortRange {
-                range: "CIDR prefix too large for MVP (minimum /24)".to_string()
-            }));
-        }
-        
-        // Simple expansion for /24 networks
         match base_ip {
             IpAddr::V4(ipv4) => {
+                // For IPv4, limit to /24 or smaller to avoid memory issues
+                if prefix < 24 {
+                    return Err(Error::Config(crate::error::ConfigError::InvalidPortRange {
+                        range: "IPv4 CIDR prefix too large (minimum /24)".to_string()
+                    }));
+                }
+                
                 let mut ips = Vec::new();
                 let octets = ipv4.octets();
                 for i in 1..255 {
@@ -644,16 +702,42 @@ impl Scanner {
                 }
                 Ok(ips)
             },
-            IpAddr::V6(_) => {
-                // IPv6 CIDR expansion not implemented in MVP
-                Err(Error::FeatureNotAvailable { feature: "IPv6 CIDR expansion".to_string() })
+            IpAddr::V6(ipv6) => {
+                // For IPv6, limit to /112 or smaller to avoid memory issues
+                if prefix < 112 {
+                    return Err(Error::Config(crate::error::ConfigError::InvalidPortRange {
+                        range: "IPv6 CIDR prefix too large (minimum /112)".to_string()
+                    }));
+                }
+                
+                let host_bits = 128 - prefix;
+                let num_addresses = 1u128 << host_bits;
+                
+                // Limit to 65536 addresses to prevent memory issues
+                if num_addresses > 65536 {
+                    return Err(Error::Config(crate::error::ConfigError::InvalidPortRange {
+                        range: "IPv6 CIDR range too large (maximum 65536 addresses)".to_string()
+                    }));
+                }
+                
+                let mut ips = Vec::new();
+                let base_int = u128::from(ipv6);
+                let network_mask = !((1u128 << host_bits) - 1);
+                let network_base = base_int & network_mask;
+                
+                for i in 0..num_addresses {
+                    let addr_int = network_base | i;
+                    let addr = std::net::Ipv6Addr::from(addr_int);
+                    ips.push(IpAddr::V6(addr));
+                }
+                
+                Ok(ips)
             }
         }
     }
 
     /// Expand IP range to individual addresses
     fn expand_ip_range(&self, start: IpAddr, end: IpAddr) -> Result<Vec<IpAddr>> {
-        // Simplified IP range expansion
         match (start, end) {
             (IpAddr::V4(start_v4), IpAddr::V4(end_v4)) => {
                 let start_num = u32::from(start_v4);
@@ -665,10 +749,10 @@ impl Scanner {
                     }));
                 }
                 
-                // Limit range size for MVP
-                if end_num - start_num > 1000 {
+                // Limit range size to prevent memory issues
+                if end_num - start_num > 65536 {
                     return Err(Error::Config(crate::error::ConfigError::InvalidPortRange {
-                        range: "IP range too large for MVP (maximum 1000 addresses)".to_string()
+                        range: "IPv4 range too large (maximum 65536 addresses)".to_string()
                     }));
                 }
                 
@@ -678,7 +762,40 @@ impl Scanner {
                 }
                 Ok(ips)
             },
-            _ => Err(Error::FeatureNotAvailable { feature: "IPv6 ranges or mixed ranges".to_string() })
+            (IpAddr::V6(start_v6), IpAddr::V6(end_v6)) => {
+                let start_num = u128::from(start_v6);
+                let end_num = u128::from(end_v6);
+                
+                if end_num < start_num {
+                    return Err(Error::Config(crate::error::ConfigError::InvalidPortRange {
+                        range: "End IPv6 must be greater than start IPv6".to_string()
+                    }));
+                }
+                
+                let range_size = end_num.saturating_sub(start_num).saturating_add(1);
+                
+                // Limit range size to prevent memory issues
+                if range_size > 65536 {
+                    return Err(Error::Config(crate::error::ConfigError::InvalidPortRange {
+                        range: "IPv6 range too large (maximum 65536 addresses)".to_string()
+                    }));
+                }
+                
+                let mut ips = Vec::new();
+                let mut current = start_num;
+                
+                while current <= end_num && ips.len() < 65536 {
+                    ips.push(IpAddr::V6(std::net::Ipv6Addr::from(current)));
+                    if current == u128::MAX {
+                        break; // Prevent overflow
+                    }
+                    current += 1;
+                }
+                Ok(ips)
+            },
+            _ => Err(Error::Config(crate::error::ConfigError::InvalidPortRange {
+                range: "IP range must use the same IP version (IPv4 or IPv6)".to_string()
+            }))
         }
     }
 
@@ -696,10 +813,21 @@ impl Scanner {
             443 => Some("https"),
             993 => Some("imaps"),
             995 => Some("pop3s"),
-            3389 => Some("rdp"),
-            5432 => Some("postgresql"),
-            3306 => Some("mysql"),
             1433 => Some("mssql"),
+            3000 => Some("node"),
+            3001 => Some("node"),
+            3306 => Some("mysql"),
+            3389 => Some("rdp"),
+            4157 => Some("unknown"),
+            5000 => Some("flask"),
+            5432 => Some("postgresql"),
+            6379 => Some("redis"),
+            7000 => Some("cassandra"),
+            8000 => Some("http-alt"),
+            8021 => Some("unknown"),
+            8080 => Some("http-proxy"),
+            8828 => Some("unknown"),
+            9000 => Some("http-alt"),
             _ => None,
         }
     }
@@ -759,6 +887,327 @@ impl Scanner {
             "Scan resumed by user request"
         );
     }
+    
+    /// Wait for rate limiting before sending next probe
+    async fn wait_for_rate_limit(&self) {
+        // Use token bucket for burst control
+        self.token_bucket.write().await.consume().await;
+        
+        // Use adaptive rate limiter for congestion control
+        self.rate_limiter.write().await.wait_for_next().await;
+    }
+    
+    /// Record probe response for rate limiting adjustment
+    async fn record_probe_response(&self, response_time: Duration, success: bool) {
+        if success {
+            self.rate_limiter.write().await.record_response(response_time);
+            self.congestion_detector.write().await.record_rtt(response_time);
+        } else {
+            self.rate_limiter.write().await.record_timeout();
+        }
+    }
+    
+    /// Get optimal parallelism level based on current conditions
+    async fn get_optimal_parallelism(&self) -> usize {
+        let timing_config = &self.config.timing;
+        let is_congested = self.congestion_detector.read().await.is_congested();
+        
+        if is_congested {
+            // Reduce parallelism during congestion
+            timing_config.advanced.min_parallelism as usize
+        } else {
+            // Use effective parallelism from timing config
+            timing_config.effective_parallelism() as usize
+        }
+    }
+    
+    /// Perform parallel port scan with rate limiting
+    async fn parallel_port_scan(
+        &self,
+        host: &HostResult,
+        ports: &[u16],
+        protocol: Protocol,
+        options: &ScanOptions,
+    ) -> Result<Vec<PortResult>> {
+        let parallelism = self.get_optimal_parallelism().await.min(options.max_concurrency);
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(parallelism));
+        let mut tasks = Vec::new();
+        
+        for &port in ports {
+            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let host_addr = host.address;
+            let scanner = self.clone_for_task();
+            let opts = options.clone();
+            
+            let task = tokio::spawn(async move {
+                let _permit = permit; // Hold permit until task completes
+                
+                // Wait for rate limiting
+                scanner.wait_for_rate_limit().await;
+                
+                let start_time = Instant::now();
+                let result = scanner.scan_single_port(host_addr, port, protocol, &opts).await;
+                let response_time = start_time.elapsed();
+                
+                // Record response for rate limiting
+                scanner.record_probe_response(response_time, result.is_ok()).await;
+                
+                result
+            });
+            
+            tasks.push(task);
+        }
+        
+        // Collect results
+        let mut results = Vec::new();
+        for task in tasks {
+            match task.await {
+                Ok(Ok(port_result)) => results.push(port_result),
+                Ok(Err(e)) => {
+                    warn!("Port scan error: {}", e);
+                }
+                Err(e) => {
+                    warn!("Task join error: {}", e);
+                }
+            }
+        }
+        
+        Ok(results)
+    }
+    
+    /// Clone scanner for use in async tasks (lightweight clone)
+    fn clone_for_task(&self) -> ScannerTask {
+        ScannerTask {
+            config: self.config.clone(),
+            network_scanner: self.network_scanner.clone(),
+            rate_limiter: self.rate_limiter.clone(),
+            token_bucket: self.token_bucket.clone(),
+            congestion_detector: self.congestion_detector.clone(),
+        }
+    }
+    
+    /// Scan a single port with timeout and retries
+    async fn scan_single_port(
+        &self,
+        host: IpAddr,
+        port: u16,
+        protocol: Protocol,
+        options: &ScanOptions,
+    ) -> Result<PortResult> {
+        let mut last_error = None;
+        
+        for attempt in 0..=options.retries {
+            if attempt > 0 {
+                tokio::time::sleep(options.delay).await;
+            }
+            
+            match timeout(options.timeout, self.probe_port(host, port, protocol)).await {
+                Ok(Ok(state)) => {
+                    return Ok(PortResult {
+                          address: SocketAddr::new(host.into(), port),
+                          protocol,
+                          state,
+                          service: None,
+                          version: None,
+                          banner: None,
+                          response_time: Some(options.timeout),
+                          extra_info: HashMap::new(),
+                          timestamp: SystemTime::now(),
+                      });
+                }
+                Ok(Err(e)) => {
+                    last_error = Some(e);
+                }
+                Err(_) => {
+                     last_error = Some(Error::timeout(options.timeout.as_millis() as u64));
+                 }
+            }
+        }
+        
+        Err(last_error.unwrap_or_else(|| Error::timeout(options.timeout.as_millis() as u64)))
+    }
+    
+    /// Probe a single port with evasion techniques
+     async fn probe_port(&self, host: IpAddr, port: u16, protocol: Protocol) -> Result<PortState> {
+         let mut evasion_manager = self.evasion_manager.write().await;
+         
+         match protocol {
+             Protocol::Tcp => {
+                 // Apply TCP evasion techniques
+                 let target_addr = SocketAddr::new(host.into(), port);
+                 
+                 // Use custom source port if configured
+                  let bind_addr = if let Some(source_ip) = evasion_manager.get_spoofed_source() {
+                      SocketAddr::new(source_ip.into(), 0)
+                  } else {
+                      SocketAddr::new("0.0.0.0".parse().unwrap(), 0)
+                  };
+                 
+                 // Apply timing randomization
+                 let delay = evasion_manager.get_random_delay();
+                 if delay > Duration::from_micros(0) {
+                     tokio::time::sleep(delay).await;
+                 }
+                 
+                 match tokio::net::TcpStream::connect(target_addr).await {
+                     Ok(_) => Ok(PortState::Open),
+                     Err(_) => Ok(PortState::Closed),
+                 }
+             }
+             Protocol::Udp => {
+                 // UDP scanning with evasion techniques
+                 use tokio::net::UdpSocket;
+                 
+                 let bind_addr = if let Some(source_ip) = evasion_manager.get_spoofed_source() {
+                      format!("{}:0", source_ip)
+                  } else {
+                      "0.0.0.0:0".to_string()
+                  };
+                 
+                 let socket = UdpSocket::bind(&bind_addr).await
+                       .map_err(|e| Error::Network(crate::error::NetworkError::SocketCreationFailed { reason: e.to_string() }))?;
+                   
+                 let target_addr = SocketAddr::new(host.into(), port);
+                 
+                 // Use custom payload if available
+                 let payload = evasion_manager.generate_random_payload();
+                 
+                 // Apply timing randomization
+                 let delay = evasion_manager.get_random_delay();
+                 if delay > Duration::from_micros(0) {
+                     tokio::time::sleep(delay).await;
+                 }
+                 
+                 socket.send_to(&payload, target_addr).await
+                     .map_err(|e| Error::Network(crate::error::NetworkError::PacketSendFailed { reason: e.to_string() }))?;
+                 
+                 // Wait for response with timeout
+                 let mut buf = [0u8; 1024];
+                 let timeout_duration = Duration::from_millis(5000);
+                 
+                 match tokio::time::timeout(timeout_duration, socket.recv_from(&mut buf)).await {
+                     Ok(Ok(_)) => Ok(PortState::Open),
+                     Ok(Err(_)) => Ok(PortState::Filtered),
+                     Err(_) => Ok(PortState::OpenFiltered),
+                 }
+             }
+             Protocol::Icmp => {
+                 // ICMP scanning placeholder
+                 Ok(PortState::OpenFiltered)
+             }
+             Protocol::Sctp => {
+                 // SCTP scanning placeholder
+                 Ok(PortState::OpenFiltered)
+             }
+         }
+     }
+}
+
+/// Lightweight scanner for async tasks
+#[derive(Clone)]
+struct ScannerTask {
+    config: Arc<Config>,
+    network_scanner: NetworkScanner,
+    rate_limiter: Arc<RwLock<AdaptiveRateLimiter>>,
+    token_bucket: Arc<RwLock<TokenBucketLimiter>>,
+    congestion_detector: Arc<RwLock<CongestionDetector>>,
+}
+
+impl ScannerTask {
+    async fn wait_for_rate_limit(&self) {
+        self.token_bucket.write().await.consume().await;
+        self.rate_limiter.write().await.wait_for_next().await;
+    }
+    
+    async fn record_probe_response(&self, response_time: Duration, success: bool) {
+        if success {
+            self.rate_limiter.write().await.record_response(response_time);
+            self.congestion_detector.write().await.record_rtt(response_time);
+        } else {
+            self.rate_limiter.write().await.record_timeout();
+        }
+    }
+    
+    async fn scan_single_port(
+        &self,
+        host: IpAddr,
+        port: u16,
+        protocol: Protocol,
+        options: &ScanOptions,
+    ) -> Result<PortResult> {
+        let mut last_error = None;
+        
+        for attempt in 0..=options.retries {
+            if attempt > 0 {
+                tokio::time::sleep(options.delay).await;
+            }
+            
+            match timeout(options.timeout, self.probe_port(host, port, protocol)).await {
+                Ok(Ok(state)) => {
+                    return Ok(PortResult {
+                          address: SocketAddr::new(host.into(), port),
+                          protocol,
+                          state,
+                          service: None,
+                          version: None,
+                          banner: None,
+                          response_time: Some(options.timeout),
+                          extra_info: HashMap::new(),
+                          timestamp: SystemTime::now(),
+                      });
+                }
+                Ok(Err(e)) => {
+                    last_error = Some(e);
+                }
+                Err(_) => {
+                     last_error = Some(Error::timeout(options.timeout.as_millis() as u64));
+                 }
+            }
+        }
+        
+        Err(last_error.unwrap_or_else(|| Error::timeout(options.timeout.as_millis() as u64)))
+    }
+    
+    async fn probe_port(&self, host: IpAddr, port: u16, protocol: Protocol) -> Result<PortState> {
+         match protocol {
+             Protocol::Tcp => {
+                  match tokio::net::TcpStream::connect(SocketAddr::new(host.into(), port)).await {
+                      Ok(_) => Ok(PortState::Open),
+                      Err(_) => Ok(PortState::Closed),
+                  }
+              }
+             Protocol::Udp => {
+                 // UDP scanning with basic socket approach
+                 use tokio::net::UdpSocket;
+                 
+                 let socket = UdpSocket::bind("0.0.0.0:0").await
+                       .map_err(|e| Error::Network(crate::error::NetworkError::SocketCreationFailed { reason: e.to_string() }))?;
+                   
+                   let target_addr = SocketAddr::new(host.into(), port);
+                   
+                   // Send basic UDP probe
+                   let payload = b"\x00\x00\x00\x00";
+                   socket.send_to(payload, target_addr).await
+                       .map_err(|e| Error::Network(crate::error::NetworkError::PacketSendFailed { reason: e.to_string() }))?;
+                 
+                 // Wait for response with timeout
+                 let mut buf = [0u8; 1024];
+                 let timeout_duration = Duration::from_millis(5000);
+                 
+                 match tokio::time::timeout(timeout_duration, socket.recv_from(&mut buf)).await {
+                     Ok(Ok(_)) => Ok(PortState::Open),
+                     Ok(Err(_)) => Ok(PortState::Filtered),
+                     Err(_) => Ok(PortState::OpenFiltered),
+                 }
+             }
+             Protocol::Icmp => {
+                 Ok(PortState::OpenFiltered)
+             }
+             Protocol::Sctp => {
+                 Ok(PortState::OpenFiltered)
+             }
+         }
+     }
 }
 
 impl ScanState {
@@ -817,7 +1266,7 @@ impl Default for ScanOptions {
             timeout: Duration::from_secs(5),
             retries: 1,
             delay: Duration::from_millis(0),
-            host_discovery: true,
+            host_discovery: false,  // Disabled by default to allow scanning hosts without common ports open
             service_detection: true,
             os_fingerprinting: false,
             skip_ping: false,
@@ -893,7 +1342,7 @@ mod tests {
         let options = ScanOptions::default();
         assert_eq!(options.max_concurrency, 100);
         assert_eq!(options.timeout, Duration::from_secs(5));
-        assert!(options.host_discovery);
+        assert!(!options.host_discovery);
         assert!(options.service_detection);
         assert!(!options.os_fingerprinting);
     }

@@ -33,8 +33,13 @@ use uuid::Uuid;
 use chrono::{DateTime, Utc};
 
 // Core dependencies
-use cynetmapper_core::{Config, NetworkScanner};
-use cynetmapper_probes::{ProbeManager, ProbeManagerConfig};
+use cynetmapper_core::{
+    Config, 
+    scanner::{Scanner, ScanOptions, ScanPhase},
+    types::{Target, PortRange, Protocol as CoreProtocol, IpAddr as CoreIpAddr, PortState, HostState},
+    results::ScanResults as CoreScanResults,
+};
+use std::str::FromStr;
 use cynetmapper_outputs::ScanResults;
 
 // GUI modules
@@ -46,6 +51,8 @@ pub mod state;
 pub mod utils;
 pub mod widgets;
 // pub mod export;
+
+
 
 // Re-exports
 pub use commands::*;
@@ -271,6 +278,8 @@ impl AppState {
         }
     }
     
+    // Removed convert_core_results_to_gui function - working directly with core results
+    
     /// Start a new scan
     pub async fn start_scan(
         &self,
@@ -329,62 +338,16 @@ impl AppState {
             progress.status = ScanStatus::Running;
         });
         
-        // Create core config from scan config
-        let mut core_config = Config::default();
-        core_config.timing.connect_timeout = Duration::from_millis(config.timeout_ms);
-        core_config.scan.max_concurrency = config.max_concurrent;
-        let core_config = Arc::new(core_config);
-        
-        // Create probe manager
-        let probe_manager = ProbeManager::new(core_config.clone())
-            .map_err(|e| GuiError::ScanError(e.to_string()))?;
-        
-        // Create network scanner
-        let mut network_scanner = NetworkScanner::new(Duration::from_millis(config.timeout_ms));
-        
         // Parse targets
         let mut targets = Vec::new();
         for target_str in &config.targets {
-            // Try to parse as CIDR first
-            if target_str.contains('/') {
-                match self.parse_cidr(target_str) {
-                    Ok(cidr_ips) => {
-                        targets.extend(cidr_ips);
-                        continue;
-                    },
-                    Err(e) => {
-                        tracing::warn!("Failed to parse CIDR {}: {}", target_str, e);
-                        self.update_scan_progress(&scan_id, |progress| {
-                            progress.errors.push(format!("Failed to parse CIDR {}: {}", target_str, e));
-                        });
-                        continue;
-                    }
-                }
-            }
-            
-            // Try to parse as single IP
-            match target_str.parse::<std::net::IpAddr>() {
-                Ok(ip) => {
-                    use cynetmapper_core::types::IpAddr;
-                    let core_ip = match ip {
-                        std::net::IpAddr::V4(v4) => IpAddr::V4(v4),
-                        std::net::IpAddr::V6(v6) => IpAddr::V6(v6),
-                    };
-                    targets.push(core_ip);
-                },
-                Err(_) => {
-                    // Try to resolve hostname
-                    match network_scanner.resolve_hostname(target_str).await {
-                        Ok(dns_result) => {
-                            targets.extend(dns_result.addresses);
-                        },
-                        Err(e) => {
-                            tracing::warn!("Failed to resolve {}: {}", target_str, e);
-                            self.update_scan_progress(&scan_id, |progress| {
-                                progress.errors.push(format!("Failed to resolve {}: {}", target_str, e));
-                            });
-                        }
-                    }
+            match Target::from_str(target_str) {
+                Ok(target) => targets.push(target),
+                Err(e) => {
+                    tracing::warn!("Failed to parse target {}: {}", target_str, e);
+                    self.update_scan_progress(&scan_id, |progress| {
+                        progress.errors.push(format!("Failed to parse target {}: {}", target_str, e));
+                    });
                 }
             }
         }
@@ -398,158 +361,134 @@ impl AppState {
         }
         
         // Parse ports
-        let ports = if let Some(port_str) = &config.ports {
-            self.parse_ports(port_str)?
+        let port_range = if let Some(port_str) = &config.ports {
+            // Parse port string manually since PortRange doesn't have from_str
+            let port_str_owned = port_str.clone();
+            if port_str_owned.contains("-") {
+                let parts: Vec<&str> = port_str_owned.split("-").collect();
+                if parts.len() == 2 {
+                    let start: u16 = parts[0].parse().map_err(|e| GuiError::InvalidInput(format!("Invalid start port: {}", e)))?;
+                    let end: u16 = parts[1].parse().map_err(|e| GuiError::InvalidInput(format!("Invalid end port: {}", e)))?;
+                    PortRange::range(start, end)
+                } else {
+                    return Err(GuiError::InvalidInput("Invalid port range format".to_string()));
+                }
+            } else if port_str_owned.contains(",") {
+                let ports: Result<Vec<u16>, _> = port_str_owned.split(",").map(|p| p.trim().parse()).collect();
+                PortRange::list(ports.map_err(|e| GuiError::InvalidInput(format!("Invalid port list: {}", e)))?)
+            } else {
+                let port: u16 = port_str_owned.parse().map_err(|e| GuiError::InvalidInput(format!("Invalid port: {}", e)))?;
+                PortRange::single(port)
+            }
         } else {
             // Default common ports
-            vec![22, 23, 25, 53, 80, 110, 135, 139, 143, 443, 993, 995, 1723, 3306, 3389, 5432, 5900, 8080]
+            PortRange::list(vec![22, 23, 25, 53, 80, 110, 135, 139, 143, 443, 993, 995, 1723, 3306, 3389, 5432, 5900, 8080])
         };
         
+        // Create scan options
+        let scan_options = ScanOptions {
+            max_concurrency: config.max_concurrent,
+            timeout: Duration::from_millis(config.timeout_ms),
+            retries: 1,
+            delay: Duration::from_millis(0),
+            host_discovery: true,
+            service_detection: config.enable_service_detection,
+            os_fingerprinting: config.enable_os_fingerprinting,
+            skip_ping: false,
+            protocols: vec![CoreProtocol::Tcp], // Default to TCP
+        };
+        
+        // Create core config
+        let mut core_config = Config::default();
+        core_config.timing.connect_timeout = Duration::from_millis(config.timeout_ms);
+        core_config.scan.max_concurrency = config.max_concurrent;
+        
+        // Create scanner
+        let mut scanner = Scanner::new(core_config)
+            .map_err(|e| GuiError::ScanError(e.to_string()))?;
+        
+        // Calculate total work for progress tracking
+        let total_targets = targets.len();
+        let estimated_ports = port_range.count();
+        let total_combinations = total_targets * estimated_ports;
+        
         // Update progress with totals
-        let total_combinations = targets.len() * ports.len();
         self.update_scan_progress(&scan_id, |progress| {
-            progress.targets_total = targets.len();
+            progress.targets_total = total_targets;
             progress.ports_total = total_combinations;
         });
         
-        // Execute scan using probe manager
-        let mut host_results: HashMap<String, cynetmapper_outputs::HostResult> = HashMap::new();
-        let mut completed_scans = 0;
+        // Execute scan
+        let scan_results = scanner.scan(targets, port_range, scan_options)
+            .await
+            .map_err(|e| GuiError::ScanError(e.to_string()))?;
         
-        for (target_idx, target) in targets.iter().enumerate() {
+        // Process results and emit events
+        let mut completed_scans = 0;
+        let mut total_open_ports = 0;
+        
+        // Group ports by host address
+        let mut host_ports: std::collections::HashMap<String, Vec<&cynetmapper_core::results::PortResult>> = std::collections::HashMap::new();
+        for port_result in &scan_results.ports {
+            host_ports.entry(port_result.address.to_string()).or_insert_with(Vec::new).push(port_result);
+        }
+        
+        for (target_idx, host_result) in scan_results.hosts.iter().enumerate() {
             // Update current target
             self.update_scan_progress(&scan_id, |progress| {
-                progress.current_target = Some(target.to_string());
+                progress.current_target = Some(host_result.address.to_string());
                 progress.targets_completed = target_idx;
             });
             
-            let target_str = target.to_string();
-            let mut open_ports = Vec::new();
+            // Get ports for this host
+            let host_address_str = host_result.address.to_string();
+            let empty_ports = Vec::new();
+            let host_port_results = host_ports.get(&host_address_str).unwrap_or(&empty_ports);
             
-            for port in &ports {
-                // Check if scan was cancelled
-                {
-                    let scans = self.active_scans.lock().unwrap();
-                    if let Some(progress) = scans.get(&scan_id) {
-                        if progress.status == ScanStatus::Cancelled {
-                            return Ok(());
-                        }
-                    }
-                }
-                
-                // Perform TCP connect scan
-                let socket_addr = match target {
-                    cynetmapper_core::types::IpAddr::V4(ip) => {
-                        std::net::SocketAddr::V4(std::net::SocketAddrV4::new(*ip, *port))
-                    },
-                    cynetmapper_core::types::IpAddr::V6(ip) => {
-                        std::net::SocketAddr::V6(std::net::SocketAddrV6::new(*ip, *port, 0, 0))
-                    },
-                };
-                
-                let scan_start = Instant::now();
-                let is_open = tokio::time::timeout(
-                    Duration::from_millis(config.timeout_ms),
-                    tokio::net::TcpStream::connect(socket_addr)
-                ).await.is_ok_and(|result| result.is_ok());
-                let response_time = scan_start.elapsed();
-                
-                if is_open {
-                    // Create port result for open port
-                    let port_result = cynetmapper_outputs::PortResult {
-                        port: *port,
-                        protocol: cynetmapper_outputs::Protocol::Tcp,
-                        state: cynetmapper_outputs::PortState::Open,
-                        service: None, // TODO: Add service detection
-                        banner: None,  // TODO: Add banner grabbing
-                        response_time: Some(response_time),
-                    };
-                    open_ports.push(port_result);
-                    
-                    self.update_scan_progress(&scan_id, |progress| {
-                        progress.open_ports_found += 1;
-                    });
-                    
-                    tracing::info!("Open port found: {} port {}", target_str, port);
-                }
-                
-                completed_scans += 1;
-                
-                // Update progress
-                self.update_scan_progress(&scan_id, |progress| {
-                    progress.ports_scanned = completed_scans;
-                    progress.progress_percentage = (completed_scans as f64 / total_combinations as f64) * 100.0;
-                    progress.elapsed_time = start_time.elapsed();
-                    
-                    // Calculate scan rate
-                    let elapsed_secs = progress.elapsed_time.as_secs_f64();
-                    if elapsed_secs > 0.0 {
-                        progress.scan_rate = completed_scans as f64 / elapsed_secs;
-                    }
-                    
-                    // Estimate remaining time
-                    if progress.scan_rate > 0.0 {
-                        let remaining_scans = total_combinations - completed_scans;
-                        let remaining_secs = remaining_scans as f64 / progress.scan_rate;
-                        progress.estimated_remaining = Some(Duration::from_secs_f64(remaining_secs));
-                    }
-                });
-                
-                // Emit progress update to frontend
-                if let Ok(scans) = self.active_scans.lock() {
-                    if let Some(progress) = scans.get(&scan_id) {
-                        let _ = window.emit("scan-progress", progress);
-                    }
-                }
-                
-                // Small delay to prevent overwhelming the system
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
+            // Count open ports
+            let open_ports: Vec<_> = host_port_results.iter()
+                .filter(|p| matches!(p.state, PortState::Open))
+                .collect();
             
-            // Create or update host result after scanning all ports for this target
+            total_open_ports += open_ports.len();
+            
+            // Convert to GUI format and emit host-discovered event
             if !open_ports.is_empty() {
-                let host_result = cynetmapper_outputs::HostResult {
-                    address: target_str.clone(),
-                    state: cynetmapper_outputs::HostState::Up,
-                    hostnames: vec![], // TODO: Add hostname resolution
-                    ports: open_ports.clone(),
-                    os_fingerprint: None, // TODO: Add OS fingerprinting
-                    discovery_method: Some("tcp_connect".to_string()),
-                    response_times: vec![], // TODO: Collect response times
-                };
-                
-                // Emit host-discovered event with aggregated port information
                 let gui_ports: Vec<GuiPortInfo> = open_ports.iter().map(|port_result| {
                     GuiPortInfo {
-                        port: port_result.port,
+                        port: port_result.address.port(),
                         protocol: match port_result.protocol {
-                             cynetmapper_outputs::Protocol::Tcp => "tcp".to_string(),
-                             cynetmapper_outputs::Protocol::Udp => "udp".to_string(),
-                             cynetmapper_outputs::Protocol::Sctp => "sctp".to_string(),
-                             cynetmapper_outputs::Protocol::Icmp => "icmp".to_string(),
+                             CoreProtocol::Tcp => "tcp".to_string(),
+                             CoreProtocol::Udp => "udp".to_string(),
+                             CoreProtocol::Sctp => "sctp".to_string(),
+                             CoreProtocol::Icmp => "icmp".to_string(),
                          },
                          state: match port_result.state {
-                             cynetmapper_outputs::PortState::Open => "open".to_string(),
-                             cynetmapper_outputs::PortState::Closed => "closed".to_string(),
-                             cynetmapper_outputs::PortState::Filtered => "filtered".to_string(),
-                             cynetmapper_outputs::PortState::OpenFiltered => "open|filtered".to_string(),
-                             cynetmapper_outputs::PortState::ClosedFiltered => "closed|filtered".to_string(),
-                             cynetmapper_outputs::PortState::Unfiltered => "unfiltered".to_string(),
+                             PortState::Open => "open".to_string(),
+                             PortState::Closed => "closed".to_string(),
+                             PortState::Filtered => "filtered".to_string(),
+                             PortState::OpenFiltered => "open|filtered".to_string(),
+                             PortState::ClosedFiltered => "closed|filtered".to_string(),
+                             PortState::Unfiltered => "unfiltered".to_string(),
                          },
-                        service: port_result.service.as_ref().map(|s| s.name.clone()),
-                        version: None, // TODO: Add version detection
+                        service: port_result.service.clone(),
+                        version: port_result.version.clone(),
                         banner: port_result.banner.clone(),
                         response_time: port_result.response_time,
-                        confidence: Some(1.0),
+                        confidence: None, // Core doesn't have confidence field
                     }
                 }).collect();
                 
                 let gui_host_info = GuiHostInfo {
-                    address: target_str.clone(),
-                    hostname: None, // TODO: Add hostname resolution
-                    state: "up".to_string(),
+                    address: host_result.address.to_string(),
+                    hostname: host_result.hostname.clone(),
+                    state: match host_result.state {
+                        HostState::Up => "up".to_string(),
+                        HostState::Down => "down".to_string(),
+                        HostState::Unknown => "unknown".to_string(),
+                    },
                     ports: gui_ports,
-                    os_fingerprint: None, // TODO: Add OS fingerprinting
+                    os_fingerprint: None, // Core HostResult doesn't have os_fingerprint field
                     response_time: open_ports.first().and_then(|p| p.response_time),
                     last_seen: Some(chrono::Utc::now()),
                 };
@@ -558,54 +497,68 @@ impl AppState {
                 if let Err(e) = window.emit("host-discovered", &gui_host_info) {
                     tracing::warn!("Failed to emit host-discovered event: {}", e);
                 } else {
-                    tracing::info!("Host discovered: {} with {} open ports", target_str, open_ports.len());
+                    tracing::info!("Host discovered: {} with {} open ports", host_result.address, open_ports.len());
+                }
+            }
+            
+            completed_scans += host_port_results.len();
+            
+            // Update progress
+            self.update_scan_progress(&scan_id, |progress| {
+                progress.ports_scanned = completed_scans;
+                progress.open_ports_found = total_open_ports;
+                progress.progress_percentage = (completed_scans as f64 / total_combinations as f64) * 100.0;
+                progress.elapsed_time = start_time.elapsed();
+                
+                // Calculate scan rate
+                let elapsed_secs = progress.elapsed_time.as_secs_f64();
+                if elapsed_secs > 0.0 {
+                    progress.scan_rate = completed_scans as f64 / elapsed_secs;
                 }
                 
-                host_results.insert(target_str, host_result);
+                // Estimate remaining time
+                if progress.scan_rate > 0.0 {
+                    let remaining_scans = total_combinations - completed_scans;
+                    let remaining_secs = remaining_scans as f64 / progress.scan_rate;
+                    progress.estimated_remaining = Some(Duration::from_secs_f64(remaining_secs));
+                }
+            });
+            
+            // Emit progress update to frontend
+            if let Ok(scans) = self.active_scans.lock() {
+                if let Some(progress) = scans.get(&scan_id) {
+                    let _ = window.emit("scan-progress", progress);
+                }
+            }
+            
+            // Check if scan was cancelled
+            {
+                let scans = self.active_scans.lock().unwrap();
+                if let Some(progress) = scans.get(&scan_id) {
+                    if progress.status == ScanStatus::Cancelled {
+                        return Ok(());
+                    }
+                }
             }
         }
         
-        // Create comprehensive scan results
-        let end_time = SystemTime::now();
-        let total_hosts = host_results.len();
-        let total_open_ports = host_results.values().map(|h| h.ports.len()).sum::<usize>();
+        // Store the complete scan results (keeping as core results for now)
+        // TODO: Implement proper conversion when needed
+        // self.scan_results.lock().unwrap().insert(scan_id.clone(), scan_results);
         
-        let results = cynetmapper_outputs::ScanResults {
-            metadata: cynetmapper_outputs::ScanMetadata {
-                start_time: SystemTime::now() - start_time.elapsed(),
-                end_time: Some(end_time),
-                scanner_version: env!("CARGO_PKG_VERSION").to_string(),
-                command_line: format!("GUI scan: targets={:?}, ports={:?}", config.targets, config.ports),
-                scan_type: format!("{:?}", config.scan_type),
-                targets: config.targets.clone(),
-            },
-            hosts: host_results.into_values().collect(),
-            statistics: cynetmapper_outputs::ScanStatistics {
-                total_hosts: targets.len(),
-                hosts_up: total_hosts,
-                hosts_down: targets.len() - total_hosts,
-                total_ports: completed_scans,
-                open_ports: total_open_ports,
-                closed_ports: completed_scans - total_open_ports,
-                filtered_ports: 0,
-                duration: start_time.elapsed(),
-                packets_sent: completed_scans as u64,
-                packets_received: total_open_ports as u64,
-            },
-        };
-        
-        // Store results
-        self.scan_results.lock().unwrap().insert(scan_id.clone(), results.clone());
+        let hosts_up = scan_results.hosts.iter().filter(|h| matches!(h.state, HostState::Up)).count();
+        let open_ports_count = scan_results.ports.iter().filter(|p| matches!(p.state, PortState::Open)).count();
         
         tracing::info!("Scan completed: {} hosts scanned, {} hosts up, {} open ports found", 
-                      targets.len(), total_hosts, total_open_ports);
+                      total_targets, hosts_up, open_ports_count);
+
         
         // Update final progress
         self.update_scan_progress(&scan_id, |progress| {
             progress.status = ScanStatus::Completed;
             progress.progress_percentage = 100.0;
             progress.elapsed_time = start_time.elapsed();
-            progress.targets_completed = targets.len();
+            progress.targets_completed = total_targets;
         });
         
         // Emit completion event
@@ -742,14 +695,38 @@ impl AppState {
         Ok(ips)
     }
     
-    fn parse_ipv6_cidr(&self, base_ip: std::net::Ipv6Addr, _prefix_len: u8) -> GuiResult<Vec<cynetmapper_core::types::IpAddr>> {
+    fn parse_ipv6_cidr(&self, base_ip: std::net::Ipv6Addr, prefix_len: u8) -> GuiResult<Vec<cynetmapper_core::types::IpAddr>> {
         use cynetmapper_core::types::IpAddr;
-        // For IPv6, we'll only support /128 (single host) for now
-        if _prefix_len == 128 {
-            Ok(vec![IpAddr::V6(base_ip)])
-        } else {
-            Err(GuiError::InvalidInput("IPv6 CIDR ranges other than /128 are not supported yet".to_string()))
+        
+        if prefix_len > 128 {
+            return Err(GuiError::InvalidInput("IPv6 prefix cannot be greater than 128".to_string()));
         }
+        
+        // Limit to /112 or smaller to avoid memory issues
+        if prefix_len < 112 {
+            return Err(GuiError::InvalidInput("IPv6 CIDR prefix too large (minimum /112)".to_string()));
+        }
+        
+        let host_bits = 128 - prefix_len;
+        let num_addresses = 1u128 << host_bits;
+        
+        // Limit to 65536 addresses to prevent memory issues
+        if num_addresses > 65536 {
+            return Err(GuiError::InvalidInput("IPv6 CIDR range too large (maximum 65536 addresses)".to_string()));
+        }
+        
+        let mut ips = Vec::new();
+        let base_int = u128::from(base_ip);
+        let network_mask = !((1u128 << host_bits) - 1);
+        let network_base = base_int & network_mask;
+        
+        for i in 0..num_addresses {
+            let addr_int = network_base | i;
+            let addr = std::net::Ipv6Addr::from(addr_int);
+            ips.push(IpAddr::V6(addr));
+        }
+        
+        Ok(ips)
     }
 }
 
